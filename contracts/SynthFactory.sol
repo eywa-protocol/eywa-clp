@@ -97,7 +97,6 @@ contract SynthFactory is AccessControlEnumerable {
         stoken = _deploySynth(
             originalToken_,
             decimals_,
-            // TODO add EYWA to name
             string(abi.encodePacked("s ", originalName_, " ", chainSymbolFrom_)),
             string(abi.encodePacked("s", originalSymbol_, "_", chainSymbolFrom_)),
             chainIdFrom_,
@@ -142,7 +141,6 @@ contract SynthFactory is AccessControlEnumerable {
             )
         );
         address synthesis = IAddressBook(addressBook).synthesis(uint64(block.chainid));
-        // TODO what if synthesis will be redeployed?
         IOwnable(stoken).transferOwnership(synthesis);
     }
 }

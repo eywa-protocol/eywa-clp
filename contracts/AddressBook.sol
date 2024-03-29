@@ -14,7 +14,7 @@ import "./interfaces/IGateKeeper.sol";
  */
 contract AddressBook is IAddressBook, Ownable {
 
-    enum RecordTypes { Portal, Synthesis, Router, CryptoPoolAdapter, StablePoolAdapter }
+    enum RecordTypes { Portal, Synthesis, Router, PoolAdapter }
 
     struct Record {
         /// @dev chainId chain id
@@ -29,10 +29,6 @@ contract AddressBook is IAddressBook, Ownable {
     mapping(uint64 => address) public synthesis;
     /// @dev chainId -> router address
     mapping(uint64 => address) public router;
-    /// @dev cryptoPoolAdapter address
-    mapping(uint64 => address) public cryptoPoolAdapter;
-    /// @dev stablePoolAdapter address
-    mapping(uint64 => address) public stablePoolAdapter;
     /// @dev treasury address
     address public treasury;
     /// @dev whitelist address
@@ -43,8 +39,6 @@ contract AddressBook is IAddressBook, Ownable {
     event PortalSet(address portal, uint64 chainId);
     event SynthesisSet(address synthesis, uint64 chainId);
     event RouterSet(address router, uint64 chainId);
-    event CryptoPoolAdapterSet(address cryptoPoolAdapter, uint64 chainId);
-    event StablePoolAdapterSet(address stablePoolAdapter, uint64 chainId);
     event TreasurySet(address treasury);
     event WhitelistSet(address whitelist);
     event GateKeeperSet(address gateKeeper);
@@ -65,14 +59,6 @@ contract AddressBook is IAddressBook, Ownable {
 
     function setRouter(Record[] memory records) external onlyOwner {
         _setRecords(router, records, RecordTypes.Router);
-    }
-
-    function setCryptoPoolAdapter(Record[] memory records) external onlyOwner {
-        _setRecords(cryptoPoolAdapter, records, RecordTypes.CryptoPoolAdapter);
-    }
-
-    function setStablePoolAdapter(Record[] memory records) external onlyOwner {
-        _setRecords(stablePoolAdapter, records, RecordTypes.StablePoolAdapter);
     }
 
     function setTreasury(address treasury_) external onlyOwner {
@@ -108,10 +94,6 @@ contract AddressBook is IAddressBook, Ownable {
             emit SynthesisSet(endPoint, chainId);
         } else if (rtype == RecordTypes.Router) {
             emit RouterSet(endPoint, chainId);
-        } else if (rtype == RecordTypes.CryptoPoolAdapter) {
-            emit CryptoPoolAdapterSet(endPoint, chainId);
-        } else if (rtype == RecordTypes.StablePoolAdapter) {
-            emit StablePoolAdapterSet(endPoint, chainId);
         }
     }
 

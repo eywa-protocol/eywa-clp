@@ -1,4 +1,4 @@
-# EYWA Cross Chain Protocol
+# CrossCurve Cross Chain Protocol
 ## prerequisites
 node >= 16
 hardhat

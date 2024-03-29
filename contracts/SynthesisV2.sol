@@ -3,7 +3,7 @@
 pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "./EndPoint.sol";
 import "./interfaces/ISynth.sol";
@@ -11,12 +11,14 @@ import "./interfaces/IWhitelist.sol";
 import "./interfaces/IAddressBook.sol";
 
 
-contract SynthesisV2 is EndPoint, Ownable  {
+contract SynthesisV2 is EndPoint, AccessControlEnumerable  {
 
     using Address for address;
 
     /// @dev fee denominator
     uint256 public constant FEE_DENOMINATOR = 10000;
+    /// @dev operator role id
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     /// @dev chainIdFrom => original => synthetic
     mapping(uint64 => mapping(address => address)) public synthByOriginal;
     /// @dev chainIdFrom => synthetic => adapter
@@ -29,11 +31,13 @@ contract SynthesisV2 is EndPoint, Ownable  {
 
     modifier onlyRouter() {
         address router = IAddressBook(addressBook).router(uint64(block.chainid));
-        require(router == msg.sender, "Portal: router only");
+        require(router == msg.sender, "Synthesis: router only");
         _;
     }
 
-    constructor(address addressBook_) EndPoint(addressBook_) {}
+    constructor(address addressBook_) EndPoint(addressBook_) {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
 
     /**
      * @dev Sets address book.
@@ -42,14 +46,14 @@ contract SynthesisV2 is EndPoint, Ownable  {
      *
      * @param addressBook_ address book contract address.
      */
-    function setAddressBook(address addressBook_) external onlyOwner {
+    function setAddressBook(address addressBook_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setAddressBook(addressBook_);
     }
 
     /**
      * @dev Returns the cap on the token's total supply.
      */
-    function setCap(address token, uint256 cap_) external onlyOwner {
+    function setCap(address token, uint256 cap_) external onlyRole(OPERATOR_ROLE) {
         ISynthAdapter adapterImpl = ISynthAdapter(token);
         adapterImpl.setCap(cap_);
     }
@@ -84,9 +88,9 @@ contract SynthesisV2 is EndPoint, Ownable  {
         IAddressBook addressBookImpl = IAddressBook(addressBook);
         address whitelist = addressBookImpl.whitelist();
         address treasury = addressBookImpl.treasury();
-        uint256 fee = amount * IWhitelist(whitelist).bridgeFee(otoken) / FEE_DENOMINATOR;
         ISynthERC20 synthImpl = ISynthERC20(synthByOriginal[chainIdFrom][otoken]);
         require(address(synthImpl) != address(0), "Synthesis: synth not set");
+        uint256 fee = amount * IWhitelist(whitelist).bridgeFee(address(synthImpl)) / FEE_DENOMINATOR;
         amountOut = amount - fee;
         synthImpl.mint(treasury, fee);
         synthImpl.mint(to, amountOut);
@@ -159,7 +163,7 @@ contract SynthesisV2 is EndPoint, Ownable  {
      *
      * @param stokens array of ISynthERC20 tokens.
      */
-    function setSynths(address[] calldata stokens) external onlyOwner {
+    function setSynths(address[] calldata stokens) external onlyRole(OPERATOR_ROLE) {
         for (uint256 i = 0; i < stokens.length; ++i) {
             _setSynth(stokens[i]);
         }

@@ -70,34 +70,6 @@ describe('AddressBook unit tests', () => {
       .to.be.revertedWith('Ownable: caller is not the owner');
   });
 
-  it('should set cryptoPoolAdapter for given chain', async() => {
-    await addressBook.setCryptoPoolAdapter([[chainId, someAddress]]);
-    expect(await addressBook.cryptoPoolAdapter(chainId)).to.equal(someAddress);
-  });
-
-  it('shouldn\'t set cryptoPoolAdapter if address wrong', async() => {
-    await expect(addressBook.setCryptoPoolAdapter([[chainId, zeroAddress]])).to.be.revertedWith('AddressBook: zero address');
-  });
-
-  it('shouldn\'t set cryptoPoolAdapter if caller is not an owner', async() => {
-    await expect(addressBook.connect(mallory).setCryptoPoolAdapter([[chainId, someAddress]]))
-      .to.be.revertedWith('Ownable: caller is not the owner');
-  });
-
-  it('should set stablePoolAdapter for given chain', async() => {
-    await addressBook.setStablePoolAdapter([[chainId, someAddress]]);
-    expect(await addressBook.stablePoolAdapter(chainId)).to.equal(someAddress);
-  });
-
-  it('shouldn\'t set stablePoolAdapter if address wrong', async() => {
-    await expect(addressBook.setStablePoolAdapter([[chainId, zeroAddress]])).to.be.revertedWith('AddressBook: zero address');
-  });
-
-  it('shouldn\'t set stablePoolAdapter if caller is not an owner', async() => {
-    await expect(addressBook.connect(mallory).setStablePoolAdapter([[chainId, someAddress]]))
-      .to.be.revertedWith('Ownable: caller is not the owner');
-  });
-
   it('should set treasury for given chain', async() => {
     await addressBook.setTreasury(someAddress);
     expect(await addressBook.treasury()).to.equal(someAddress);

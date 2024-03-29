@@ -3,35 +3,36 @@
 pragma solidity 0.8.17;
 
 
-interface ICryptoPoolAdapter {
+interface IUnifiedPoolAdapter {
 
     function addLiquidity(
-        address pool,
+        address tokenIn,
         uint256 amountIn,
-        uint256 coinIndex,
         address to,
+        address pool,
         uint256 minAmountOut,
+        uint8 i,
         address emergencyTo
-    ) external returns(uint256 amountOut);
+    ) external returns (uint256 amountOut);
 
     function swap(
         address tokenIn,
-        address pool,
-        uint256 i,
-        uint256 j,
-        address tokenOut,
+        uint256 amountIn,
         address to,
+        address pool,
         uint256 minAmountOut,
-        address emergencyTo,
-        uint256 aggregationFee
-    ) external returns(uint256 amountOut);
+        uint8 i,
+        uint8 j,
+        address emergencyTo
+    ) external returns (uint256 amountOut);
 
     function removeLiquidity(
-        address pool,
-        uint256 i,
+        address tokenIn,
+        uint256 amountIn,
         address to,
-        address tokenOut,
+        address pool,
         uint256 minAmountOut,
+        uint8 j,
         address emergencyTo
-    ) external  returns(uint256 amountOut);
+    ) external returns (uint256 amountOut);
 }

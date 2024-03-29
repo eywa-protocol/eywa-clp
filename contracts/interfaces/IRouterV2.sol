@@ -47,7 +47,7 @@ interface IRouterParams {
     /**
      * @dev amountIn can be set as prev op result by using uint256 max. 
      */
-    struct AddStableParams {
+    struct AddParams {
         address tokenIn;
         uint256 amountIn; // amount | 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
         address from;  // from | 0x0000000000000000000000000000000000000000
@@ -55,29 +55,27 @@ interface IRouterParams {
         address pool;
         uint256 minAmountOut;
         uint8 i;
-        uint8 count;
         address emergencyTo;
     }
 
     /**
      * @dev amountIn can be set as prev op result by using uint256 max. 
      */
-    struct RemoveStableParams {
+    struct RemoveParams {
         address tokenIn;
         uint256 amountIn; // amount | 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
         address from;  // from | 0x0000000000000000000000000000000000000000
         address to;
         address pool;
         uint256 minAmountOut;
-        uint8 i;
-        address tokenOut;
+        uint8 j;
         address emergencyTo;
     }
 
     /**
      * @dev amountIn can be set as prev op result by using uint256 max. 
      */
-    struct SwapStableParams {
+    struct SwapParams {
         address tokenIn;
         uint256 amountIn; // amount | 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
         address from;  // from | 0x0000000000000000000000000000000000000000
@@ -86,53 +84,6 @@ interface IRouterParams {
         uint256 minAmountOut;
         uint8 i;
         uint8 j;
-        address tokenOut;
-        address emergencyTo;
-    }
-
-    /**
-     * @dev amountIn can be set as prev op result by using uint256 max. 
-     */
-    struct AddCryptoParams {
-        address tokenIn;
-        uint256 amountIn; // amount | 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-        address from;  // from | 0x0000000000000000000000000000000000000000
-        address to;
-        address pool;
-        uint256 minAmountOut;
-        uint8 i;
-        address emergencyTo;
-    }
-
-    /**
-     * @dev amountIn can be set as prev op result by using uint256 max. 
-     */
-    struct SwapCryptoParams {
-        address tokenIn;
-        uint256 amountIn; // amount | 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-        address from;  // from | 0x0000000000000000000000000000000000000000
-        address to;
-        address pool;
-        uint256 minAmountOut;
-        uint8 i;
-        uint8 j;
-        uint256 aggregationFee;
-        address tokenOut;
-        address emergencyTo;
-    }
-
-    /**
-     * @dev amountIn can be set as prev op result by using uint256 max. 
-     */
-    struct RemoveCryptoParams {
-        address tokenIn;
-        uint256 amountIn; // amount | 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-        address from;  // from | 0x0000000000000000000000000000000000000000
-        address to;
-        address pool;
-        uint256 minAmountOut;
-        uint8 i;
-        address tokenOut;
         address emergencyTo;
     }
 
@@ -162,10 +113,6 @@ interface IRouter is IRouterParams {
     ) external;
 }
 
-interface ICryptoRouter is IRouter {
-    
-}
-
-interface IHubRouter is IRouter {
+interface IUnifiedRouter is IRouter {
 
 }

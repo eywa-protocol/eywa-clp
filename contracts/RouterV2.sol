@@ -39,7 +39,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
 
     modifier onlyBridge() {
         address bridge = IAddressBook(addressBook).bridge();
-        require(bridge == msg.sender, "EndPoint: bridge only");
+        require(bridge == msg.sender, "Router: bridge only");
         _;
     }
 
@@ -68,7 +68,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         string[] calldata operations,
         bytes[] memory params,
         Invoice calldata receipt
-    ) external payable nonReentrant {
+    ) external payable originNetwork nonReentrant {
         _start(operations, params, receipt);
     }
 

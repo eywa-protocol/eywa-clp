@@ -1,12 +1,12 @@
 const { ethers } = require('hardhat');
 const { expect } = require('chai');
 const { parse18, parse6 } = require('../../utils/common');
-const { shouldBehaveLikeAdapter } = require('./Adapter.behavior');
+const { shouldBehaveLikeAdapter } = require('./SynthAdapter.behavior');
 
-describe('Adapter unit tests', () => {
+describe('SynthAdapter unit tests', () => {
   let factory;
   let thirdSynth, thirdSynthY;
-  let originalToken, synthToken, xSynthDecimals;
+  let originalToken, synthToken, xSynthDecimals, originalDecimals;
   const cap = parse18('10000');
   const chainId = network.config.chainId;
   const chainSymbolFrom = 'FTM';
@@ -111,7 +111,7 @@ describe('Adapter unit tests', () => {
 
       this.originalToken = thirdSynthY.address;
       this.synthToken = this.xsynth.address;
-      xSynthDecimals = await this.xsynth.decimals();
+      originalDecimals = await thirdSynthY.decimals();
 
       factory = await ethers.getContractFactory('DifferentDecimalsAdapter');
       this.adapter = await factory.deploy(
@@ -119,14 +119,14 @@ describe('Adapter unit tests', () => {
         this.synthToken, 
         chainId, 
         chainSymbolFrom, 
-        xSynthDecimals
+        originalDecimals
       );
       await this.adapter.deployed();
       await this.adapter.setCap(cap);
 
       originalToken = thirdSynth.address;
       synthToken = this.ysynth.address;
-      xSynthDecimals = await this.ysynth.decimals();
+      originalDecimals = await thirdSynth.decimals();
 
       factory = await ethers.getContractFactory('DifferentDecimalsAdapter');
       this.adapterY = await factory.deploy(
@@ -134,7 +134,7 @@ describe('Adapter unit tests', () => {
         synthToken, 
         chainId, 
         chainSymbolFrom, 
-        xSynthDecimals
+        originalDecimals
       );
       await this.adapterY.deployed();
       await this.adapterY.setCap(cap);

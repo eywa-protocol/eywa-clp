@@ -6,7 +6,6 @@ describe('Whitelist unit tests', () => {
 
   let whitelist;
 
-  const zeroAddress = ethers.constants.AddressZero;
   const chainId = network.config.chainId;
   const bridgeAddress = '0x0000000000000000000000000000000000000042';
   const someToken = '0x0000000000000000000000000000000000000088';
@@ -56,7 +55,7 @@ describe('Whitelist unit tests', () => {
   });
 
   it('shouldn\'t set token if address wrong', async() => {
-    await expect(whitelist.setTokens([[zeroAddress, 0, 0, 0, TokenState.InOut]]))
+    await expect(whitelist.setTokens([[ethers.constants.AddressZero, 0, 0, 0, TokenState.InOut]]))
       .to.be.revertedWith('Whitelist: zero address');
   });
 
@@ -106,12 +105,11 @@ describe('Whitelist unit tests', () => {
   });
 
   it('shouldn\'t set pool if address wrong', async() => {
-    await expect(whitelist.setPools([[zeroAddress, 0, PoolState.AddSwapRemove]]))
+    await expect(whitelist.setPools([[ethers.constants.AddressZero, 0, PoolState.AddSwapRemove]]))
       .to.be.revertedWith('Whitelist: zero address');
   });
 
   it('shouldn\'t set pool if caller is not an owner', async() => {
-    // const message = `AccessControl: account ${notAdmin.address.toLowerCase()} is missing role ${await govBridge.DEFAULT_ADMIN_ROLE()}`;
     await expect(whitelist.connect(mallory).setPools([[somePool, 0, PoolState.AddSwapRemove]]))
       .to.be.revertedWith('Ownable: caller is not the owner');
   });

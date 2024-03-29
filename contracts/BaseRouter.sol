@@ -48,6 +48,9 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
 
     /// @dev should be set between receiveValidatedData and resume call
     uint64 internal currentChainIdFrom;
+
+    /// @dev should be true when start proceeding (only on initial call)
+    bool internal isOriginNetwork;
     
     event FeePaid(address indexed payer, address accountant, uint256 executionPrice);
     event ComplexOpProcessed(
@@ -59,6 +62,12 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         uint8 lastOp
     );
     event ComplexOpSet(string oop, bytes32 hash, bool registered);
+
+    modifier originNetwork() {
+        isOriginNetwork = true;
+        _;
+        isOriginNetwork = false;
+    }
 
     modifier crosschainHandling(bytes32 requestId) {
         currentRequestId = requestId;

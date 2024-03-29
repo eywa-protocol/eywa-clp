@@ -13,12 +13,6 @@ interface IAddressBook {
     /// @dev returns router by given chainId
     function router(uint64 chainId) external view returns (address);
 
-    /// @dev returns cryptoPoolAdapter
-    function cryptoPoolAdapter(uint64 chainId) external view returns (address);
-
-    /// @dev returns stablePoolAdapter
-    function stablePoolAdapter(uint64 chainId) external view returns (address);
-
     /// @dev returns whitelist
     function whitelist() external view returns (address);
 
