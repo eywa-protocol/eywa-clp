@@ -159,7 +159,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
             CancelParams memory p = abi.decode(params, (CancelParams));
             if (isOpHalfDone == false) {
                 require(processedOps[p.requestId] != CrossChainOpState.Succeeded, "Router: op processed");
-                processedOps[currentRequestId] = CrossChainOpState.Reverted;
+                processedOps[p.requestId] = CrossChainOpState.Reverted;
                 chainIdTo = p.chainIdTo;
             } else {
                 bytes memory emergencyParams = startedOps[p.requestId];
