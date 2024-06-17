@@ -4,7 +4,7 @@ const { parse18 } = require('../../utils/common');
 const { shouldBehaveLikeVirtualPriceReceiver } = require('./VirtualPriceReceiver.behavior');
 
 
-describe('VirtualPriceReceiver unit tests', () => {
+describe('VirtualPriceReceiverV2 unit tests', () => {
 
   chainId = network.config.chainId;
 
@@ -29,7 +29,7 @@ describe('VirtualPriceReceiver unit tests', () => {
     factory = await ethers.getContractFactory('PriceOraclePoolMock');
     cryptoPool = await factory.deploy();
 
-    factory = await ethers.getContractFactory('VirtualPriceReceiver');
+    factory = await ethers.getContractFactory('VirtualPriceReceiverV2');
     virtualPriceReceiver = await factory.deploy(addressBook.address, [chainId], [bridge.address]);
     await virtualPriceReceiver.deployed();
 
@@ -39,24 +39,21 @@ describe('VirtualPriceReceiver unit tests', () => {
   shouldBehaveLikeVirtualPriceReceiver.call(this);
 
   it('should return correct price', async () => {
-    const virtualPriceEth = parse18('0.01');
-    const virtualPriceBsc = parse18('0.56');
-    const virtualPricePol = parse18('0.137');
-    const virtualPriceOp = parse18('0.1');
-    const virtualPriceArb = parse18('0.42161');
-    const virtualPriceAvax = parse18('0.43114');
-    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceEth, 1);
-    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceBsc, 56);
-    await virtualPriceReceiver.receiveVirtualPrice(virtualPricePol, 137);
-    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceOp, 10);
-    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceArb, 42161);
-    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceAvax, 43114);
-    expect(await virtualPriceReceiver.getVirtualPriceEth()).to.equal(virtualPriceEth);
-    expect(await virtualPriceReceiver.getVirtualPriceBsc()).to.equal(virtualPriceBsc);
-    expect(await virtualPriceReceiver.getVirtualPricePol()).to.equal(virtualPricePol);
-    expect(await virtualPriceReceiver.getVirtualPriceOpt()).to.equal(virtualPriceOp);
-    expect(await virtualPriceReceiver.getVirtualPriceArb()).to.equal(virtualPriceArb);
-    expect(await virtualPriceReceiver.getVirtualPriceAvax()).to.equal(virtualPriceAvax);
+    const virtualPriceBase = parse18('0.8453');
+    const virtualPriceCelo = parse18('0.42220');
+    const virtualPriceMoonbeam = parse18('0.1284');
+    const virtualPriceGnosis = parse18('0.001');
+    const virtualPriceXLayer = parse18('0.196');
+    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceBase, 8453);
+    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceCelo, 42220);
+    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceMoonbeam, 1284);
+    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceGnosis, 100);
+    await virtualPriceReceiver.receiveVirtualPrice(virtualPriceXLayer, 196);
+    expect(await virtualPriceReceiver.getVirtualPriceBase()).to.equal(virtualPriceBase);
+    expect(await virtualPriceReceiver.getVirtualPriceCelo()).to.equal(virtualPriceCelo);
+    expect(await virtualPriceReceiver.getVirtualPriceMoonbeam()).to.equal(virtualPriceMoonbeam);
+    expect(await virtualPriceReceiver.getVirtualPriceGnosis()).to.equal(virtualPriceGnosis);
+    expect(await virtualPriceReceiver.getVirtualPriceXlayer()).to.equal(virtualPriceXLayer);
   });
 
 });
