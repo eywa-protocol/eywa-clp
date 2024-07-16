@@ -242,9 +242,11 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     }
 
     function _proceedFees(uint256 executionPrice, address accountant) internal virtual override {
-        require(msg.value >= executionPrice, "Router: invalid amount");
-        (bool sent, ) = accountant.call{ value: executionPrice }("");
-        require(sent, "Router: failed to send Ether");
+        if (executionPrice != 0) {
+            require(msg.value >= executionPrice, "Router: invalid amount");
+            (bool sent, ) = accountant.call{ value: executionPrice }("");
+            require(sent, "Router: failed to send Ether");
+        }
         emit FeePaid(msg.sender, accountant, executionPrice);
     }
 
