@@ -100,7 +100,7 @@ describe('AddressBook unit tests', () => {
       .to.be.revertedWith('Ownable: caller is not the owner');
   });
 
-  it('should set router for given chain', async() => {
+  it('should set whitelist for given chain', async() => {
     await addressBook.setWhitelist(someAddress);
     expect(await addressBook.whitelist()).to.equal(someAddress);
   });
@@ -111,6 +111,20 @@ describe('AddressBook unit tests', () => {
 
   it('shouldn\'t set whitelist if caller is not an owner', async() => {
     await expect(addressBook.connect(mallory).setWhitelist(someAddress))
+      .to.be.revertedWith('Ownable: caller is not the owner');
+  });
+
+  it('should set ops registrar for given chain', async() => {
+    await addressBook.setOpsRegistrar(someAddress);
+    expect(await addressBook.opsRegistrar()).to.equal(someAddress);
+  });
+
+  it('shouldn\'t set ops registrar if address wrong', async() => {
+    await expect(addressBook.setOpsRegistrar(zeroAddress)).to.be.revertedWith('AddressBook: zero address');
+  });
+
+  it('shouldn\'t set ops registrar if caller is not an owner', async() => {
+    await expect(addressBook.connect(mallory).setOpsRegistrar(someAddress))
       .to.be.revertedWith('Ownable: caller is not the owner');
   });
 

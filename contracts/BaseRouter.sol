@@ -11,6 +11,7 @@ import "./EndPoint.sol";
 import "./interfaces/IGateKeeper.sol";
 import "./interfaces/IRouterV2.sol";
 import "./interfaces/IAddressBook.sol";
+import "./interfaces/IOpsRegistrar.sol";
 import "./utils/RequestIdLib.sol";
 
 
@@ -18,11 +19,6 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     using Counters for Counters.Counter;
 
     enum ExecutionResult { Failed, Succeeded, Interrupted }
-
-    struct ComplexOp {
-        string operation;
-        bool registered;
-    }
 
     struct MaskedParams {
         uint256 amountOut;
@@ -34,8 +30,6 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     bytes32 public constant ACCOUNTANT_ROLE = keccak256("ACCOUNTANT_ROLE");
     /// @dev operator role id
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
-    /// @dev registered operations
-    mapping(bytes32 => bool) public ops;
 
     /// @dev nonces
     mapping(address => Counters.Counter) private _nonces;
@@ -61,7 +55,6 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         ExecutionResult result,
         uint8 lastOp
     );
-    event ComplexOpSet(string oop, bytes32 hash, bool registered);
 
     modifier originNetwork() {
         isOriginNetwork = true;
@@ -84,20 +77,6 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
 
     function nonces(address whose) public view returns (uint256) {
         return _nonces[whose].current();
-    }
-
-    /**
-     * @dev Registers set of complex operation.
-     *
-     * @param complexOps_ array of complex operations and registered flags.
-     */
-    function registerComplexOp(ComplexOp[] memory complexOps_) external onlyRole(OPERATOR_ROLE) {
-        uint256 length = complexOps_.length;
-        for (uint256 i; i < length; ++i) {
-            bytes32 oop = keccak256(bytes(complexOps_[i].operation));
-            ops[oop] = complexOps_[i].registered;
-            emit ComplexOpSet(complexOps_[i].operation, oop, complexOps_[i].registered);
-        }
     }
 
     /**
@@ -145,9 +124,11 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     ) internal virtual {
         require(operations.length < 2**8, "BaseRouter: wrong params count");
         require(operations.length == params.length, "BaseRouter: wrong params");
+
+        address opsRegistrar = IAddressBook(addressBook).opsRegistrar();
         {
             (bytes32 hash, bytes memory data) = _getRawData(operations, params);
-            require(ops[hash] == true, "BaseRouter: complex op not registered");
+            require(IOpsRegistrar(opsRegistrar).ops(hash) == true, "BaseRouter: complex op not registered");
             address accountant = _checkSignature(msg.sender, hash, data, receipt);
             _proceedFees(receipt.executionPrice, accountant);
         }

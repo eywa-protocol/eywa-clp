@@ -7,7 +7,7 @@ const abi = ethers.utils.defaultAbiCoder;
 
 describe('Router unit tests', () => {
 
-  let addressBook, whitelist, portal, synthesis, treasury, router, bridge, gateKeeper, USDT, sUSDT_BSC;
+  let addressBook, whitelist, opsRegistrar, portal, synthesis, treasury, router, bridge, gateKeeper, USDT, sUSDT_BSC;
   let owner, accountant, alice, mallory;
 
   // origin chain
@@ -25,6 +25,10 @@ describe('Router unit tests', () => {
     factory = await ethers.getContractFactory('WhitelistV2Mock');
     whitelist = await factory.deploy();
     await whitelist.deployed();
+
+    factory = await ethers.getContractFactory('OpsRegistrar');
+    opsRegistrar = await factory.deploy();
+    await opsRegistrar.deployed();
 
     factory = await ethers.getContractFactory('SynthesisV2Mock');
     synthesis = await factory.deploy(addressBook.address);
@@ -52,6 +56,7 @@ describe('Router unit tests', () => {
 
     await bridge.grantRole(await bridge.GATEKEEPER_ROLE(), gateKeeper.address);
 
+    await addressBook.setOpsRegistrar(opsRegistrar.address);
     await addressBook.setWhitelist(whitelist.address);
     await addressBook.setSynthesis([[network.config.chainId, synthesis.address], [56, synthesis.address]]);
     await addressBook.setPortal([[network.config.chainId, portal.address], [56, portal.address]]);
@@ -64,7 +69,7 @@ describe('Router unit tests', () => {
 
     await synthesis.grantRole(await synthesis.OPERATOR_ROLE(), owner.address);
 
-    await router.registerComplexOp([
+    await opsRegistrar.registerComplexOp([
       ['LM', true],
       ['BM', true],
       ['BU', true],
