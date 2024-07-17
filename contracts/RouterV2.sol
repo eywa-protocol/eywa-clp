@@ -97,6 +97,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     ) internal virtual override returns (uint64 chainIdTo, bytes memory updatedParams, MaskedParams memory maskedParams, ExecutionResult result) {
         result = ExecutionResult.Succeeded;
         if (PERMIT_CODE == op) {
+            require(currentOpsIdx == 0, "Router: permit not allowed");
             PermitParams memory p = abi.decode(params, (PermitParams));
             IERC20WithPermit(p.token).permit(
                 p.owner,

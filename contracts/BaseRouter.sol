@@ -43,6 +43,9 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     /// @dev should be set between receiveValidatedData and resume call
     uint64 internal currentChainIdFrom;
 
+    /// @dev current ops index
+    uint256 internal currentOpsIdx;
+
     /// @dev should be true when start proceeding (only on initial call)
     bool internal isOriginNetwork;
     
@@ -172,6 +175,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         MaskedParams memory maskedParams;
         bytes memory updatedParams;
         for (uint256 i = cPos; i < operations.length; ++i) {
+            currentOpsIdx = i;
             (chainIdTo, updatedParams, maskedParams, result) = _executeOp(
                 (currentRequestId != 0 && i == cPos),
                 keccak256(bytes(operations[i])),
@@ -202,6 +206,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
                 break;
             }
         }
+        currentOpsIdx = 0;
     }
 
     /**
