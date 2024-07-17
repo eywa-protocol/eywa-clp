@@ -215,6 +215,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     }
 
     function _wrap(WrapParams memory p) internal returns (uint256 amountOut) {
+        require(currentOpsIdx == 0, "Router: wrap not allowed");
         require(msg.value >= p.amountIn, "Router: invalid amount");
         IWETH9(p.tokenIn).deposit{ value: p.amountIn }();
         SafeERC20.safeTransfer(IERC20(p.tokenIn), p.to, p.amountIn);
@@ -222,6 +223,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     }
 
     function _unwrap(WrapParams memory p) internal returns (uint256 amountOut) {
+        require(currentOpsIdx == (currentOpsCount - 1), "Router: unwrap not allowed");
         if (p.from != address(this)) {
             SafeERC20.safeTransferFrom(IERC20(p.tokenIn), p.from, address(this), p.amountIn);
         }

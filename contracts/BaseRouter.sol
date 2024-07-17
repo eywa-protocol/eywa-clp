@@ -46,6 +46,9 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     /// @dev current ops index
     uint256 internal currentOpsIdx;
 
+    /// @dev current ops count
+    uint256 internal currentOpsCount;
+
     /// @dev should be true when start proceeding (only on initial call)
     bool internal isOriginNetwork;
     
@@ -174,6 +177,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     ) {
         MaskedParams memory maskedParams;
         bytes memory updatedParams;
+        currentOpsCount = operations.length;
         for (uint256 i = cPos; i < operations.length; ++i) {
             currentOpsIdx = i;
             (chainIdTo, updatedParams, maskedParams, result) = _executeOp(
@@ -207,6 +211,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
             }
         }
         currentOpsIdx = 0;
+        currentOpsCount = 0;
     }
 
     /**
