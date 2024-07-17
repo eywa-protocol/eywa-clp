@@ -99,15 +99,19 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         if (PERMIT_CODE == op) {
             require(currentOpsIdx == 0, "Router: permit not allowed");
             PermitParams memory p = abi.decode(params, (PermitParams));
-            IERC20WithPermit(p.token).permit(
-                p.owner,
-                address(this),
-                p.amount,
-                p.deadline,
-                p.v,
-                p.r,
-                p.s
-            );
+            try IERC20WithPermit(p.token).permit(
+                    p.owner,
+                    address(this),
+                    p.amount,
+                    p.deadline,
+                    p.v,
+                    p.r,
+                    p.s
+            ) {
+
+            } catch {
+                require(IERC20(p.token).allowance(p.owner, address(this)) >= p.amount, "Router: permit failure");
+            }
         } else if (LOCK_MINT_CODE == op || BURN_UNLOCK_CODE == op || BURN_MINT_CODE == op) {
             SynthParams memory p = abi.decode(params, (SynthParams));
             if (isOpHalfDone == false) {
