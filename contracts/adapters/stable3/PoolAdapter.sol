@@ -85,8 +85,8 @@ contract PoolAdapterAave {
      * @param to Address where the output tokens will be transferred;
      * @param pool Address of the pool contract;
      * @param minAmountOut Minimum amount of coin to receive;
-     * @param i Index of the input token (if > n, it's undrlying);
-     * @param j Index of the output token (if > n, it's undrlying);
+     * @param i Index of the input token (if > n, it's underlying);
+     * @param j Index of the output token (if > n, it's underlying);
      * @param emergencyTo Emergency to address in case of inconsistency.
      */
     function swap(
