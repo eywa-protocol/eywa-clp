@@ -14,7 +14,7 @@ contract FeesTreasury is Treasury, Ownable, ReentrancyGuard {
         address token,
         uint256 amount,
         address to
-    ) public onlyOwner nonReentrant {
+    ) public nonReentrant onlyOwner {
         _withdraw(reason, token, amount, to);
     }
 

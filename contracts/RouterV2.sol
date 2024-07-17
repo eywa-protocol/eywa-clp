@@ -68,7 +68,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         string[] calldata operations,
         bytes[] memory params,
         Invoice calldata receipt
-    ) external payable originNetwork nonReentrant {
+    ) external payable nonReentrant originNetwork {
         _start(operations, params, receipt);
     }
 
@@ -77,7 +77,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         uint8 cPos,
         string[] calldata operations,
         bytes[] memory params
-    ) external onlyBridge crosschainHandling(requestId) nonReentrant {
+    ) external nonReentrant onlyBridge crosschainHandling(requestId) {
         _resume(requestId, cPos, operations, params);
     }
 
