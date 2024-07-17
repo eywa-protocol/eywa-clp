@@ -37,6 +37,7 @@ contract UnifiedRouterV2 is RouterV2, IUnifiedRouter {
     ) external onlyRole(OPERATOR_ROLE) {
         require(pool_ != address(0), "UnifiedRouterV2: zero address");
         poolAdapter[pool_] = poolAdapter_;
+        emit PoolAdapterSet(pool_, poolAdapter_);
     }
 
     /**
