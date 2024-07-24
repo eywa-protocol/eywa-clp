@@ -260,7 +260,11 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         bytes memory op;
         for (uint256 i = 0; i < operations.length; ++i) {
             op = bytes.concat(op, bytes(operations[i]));
-            data = bytes.concat(data, params[i]);
+            if (data.length == 0) {
+                data = params[i];
+            } else {
+                data = bytes.concat(data, ",", params[i]);
+            }
         }
         hash = keccak256(op);
     }
