@@ -113,13 +113,13 @@ contract PoolAdapterCrypto {
         require(tokenIn == poolImpl.coins(i), "PoolAdapterCrypto: wrong params");
 
         IERC20 erc20Impl = IERC20(tokenIn);
-        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
 
         uint256 minDy = poolImpl.get_dy(uint256(i), uint256(j), amountIn);
         if (minAmountOut > minDy) {
             SafeERC20.safeTransfer(erc20Impl, emergencyTo, amountIn);
             return 0;
         }
+        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
         poolImpl.exchange(uint256(i), uint256(j), amountIn, minDy);
 
         address tokenOut = poolImpl.coins(j);

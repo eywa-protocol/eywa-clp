@@ -135,13 +135,13 @@ contract PoolAdapter {
 
         IERC20 erc20Impl = IERC20(tokenIn);
 
-        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
-
         uint256 minDy = poolImpl.get_dy(int128(uint128(i)), int128(uint128(j)), amountIn);
         if (minAmountOut > minDy) {
             SafeERC20.safeTransfer(erc20Impl, emergencyTo, amountIn);
             return 0;
         }
+        
+        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
         amountOut = poolImpl.exchange(int128(uint128(i)), int128(uint128(j)), amountIn, minAmountOut, to);
     }
 

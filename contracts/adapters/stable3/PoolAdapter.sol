@@ -105,7 +105,6 @@ contract PoolAdapterAave {
         j = isUnderlying ? j - n : j;
 
         IERC20 erc20Impl = IERC20(isUnderlying ? IAavePool(pool).underlying_coins(i) : IAavePool(pool).coins(i));
-        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
 
         require(tokenIn == address(erc20Impl), "PoolAdapterAave: wrong params");
 
@@ -116,10 +115,14 @@ contract PoolAdapterAave {
         } else {
             minDy = IAavePool(pool).get_dy(int128(uint128(i)), int128(uint128(j)), amountIn);
         }
+
         if (minAmountOut > minDy) {
             SafeERC20.safeTransfer(erc20Impl, emergencyTo, amountIn);
             return 0;
         }
+        
+        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
+
         if (isUnderlying) {
             amountOut = IAavePool(pool).exchange_underlying(int128(uint128(i)), int128(uint128(j)), amountIn, 0);
             tokenOut = IAavePool(pool).underlying_coins(j);
