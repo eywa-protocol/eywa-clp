@@ -6,7 +6,7 @@ const abi = ethers.utils.defaultAbiCoder;
 describe('Synthesis unit tests', () => {
 
   let addressBook, whitelist, synthesis, treasury, router, sUSDT_BSC, sUSDC, sDAI, tokenX, tokenXAdapter;
-  let owner, operator, alice, mallory;
+  let owner, operator, alice, mallory, likeRouter;
 
   const chainId = network.config.chainId;
   const someAddress = '0x0000000000000000000000000000000000000088';
@@ -18,7 +18,7 @@ describe('Synthesis unit tests', () => {
 
   beforeEach(async () => {
     // eslint-disable-next-line no-undef
-    [owner, operator, alice, mallory] = await ethers.getSigners();
+    [owner, operator, alice, mallory, likeRouter] = await ethers.getSigners();
 
     let factory = await ethers.getContractFactory('AddressBook');
     addressBook = await factory.deploy();
@@ -242,7 +242,7 @@ describe('Synthesis unit tests', () => {
 
   describe('Burn', () => {
 
-    let data1, data2;
+    let data1, data2, sUSDT_fake;
 
     beforeEach(async () => {
       const s1 = [
@@ -271,12 +271,28 @@ describe('Synthesis unit tests', () => {
       await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
       await sUSDT_BSC.transferOwnership(synthesis.address);
       await router.resume(ethers.constants.HashZero, 0, ['LM'], [data1]);
+
+      const factory = await ethers.getContractFactory('SynthERC20');
+      sUSDT_fake = await factory.deploy('sUSDT_fake', 'sUSDT_fake', 6, USDTAddress, 56, 'BSC', 1);
+      await sUSDT_fake.deployed();
     });
 
     it('should burn synth', async () => {
       expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(parse6('100'));
       await router.start(['BM'], [data2]);
       expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(0);
+    });
+
+    it('should not burn synth if it\'s not in whitelist', async () => {
+      await addressBook.setRouter([[chainId, likeRouter.address]]);
+      const s2 = [
+        sUSDT_fake.address,
+        parse6('100'),
+        owner.address,
+        owner.address,
+        56, // chain id to
+      ];
+      await expect(synthesis.connect(likeRouter).burn(...s2)).to.be.revertedWith('Whitelist: token not set');
     });
 
     it('shouldn\'t burn if caller is not a router', async () => {

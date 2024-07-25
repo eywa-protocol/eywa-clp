@@ -12,6 +12,7 @@ import "./interfaces/IAddressBook.sol";
 import "./interfaces/IWETH.sol";
 import "./interfaces/IERC20WithPermit.sol";
 import "./interfaces/ISynth.sol";
+import "./interfaces/IWhitelist.sol";
 
 
 contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
@@ -129,6 +130,10 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
                         }
                         p.from = synthesis;
                     } else {
+                        // check for backward compatibility with deployed SynthesisV2
+                        IAddressBook addressBookImpl = IAddressBook(addressBook);
+                        address whitelist = addressBookImpl.whitelist();
+                        require(IWhitelist(whitelist).tokenState(p.tokenIn) >= 0, "Router: synth must be whitelisted");
                         possibleAdapter = p.tokenIn;
                     }
                     ISynthesisV2(synthesis).burn(p.tokenIn, p.amountIn, p.from, p.to, p.chainIdTo);

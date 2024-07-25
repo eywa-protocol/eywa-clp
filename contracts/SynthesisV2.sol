@@ -21,7 +21,7 @@ contract SynthesisV2 is EndPoint, AccessControlEnumerable  {
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     /// @dev chainIdFrom => original => synthetic
     mapping(uint64 => mapping(address => address)) public synthByOriginal;
-    /// @dev chainIdFrom => synthetic => adapter
+    /// @dev chainIdFrom => synthetic => adapter (adapter by synth)
     mapping(address => address) public synthBySynth;
 
     event Synthesized(address token, uint256 amount, address from, address to);
@@ -90,6 +90,7 @@ contract SynthesisV2 is EndPoint, AccessControlEnumerable  {
         address treasury = addressBookImpl.treasury();
         ISynthERC20 synthImpl = ISynthERC20(synthByOriginal[chainIdFrom][otoken]);
         require(address(synthImpl) != address(0), "Synthesis: synth not set");
+        // IWhitelist(whitelist).bridgeFee shuld revert if token is not whitelisted (require missing)
         uint256 fee = amount * IWhitelist(whitelist).bridgeFee(address(synthImpl)) / FEE_DENOMINATOR;
         amountOut = amount - fee;
         synthImpl.mint(treasury, fee);
@@ -117,6 +118,9 @@ contract SynthesisV2 is EndPoint, AccessControlEnumerable  {
         ISynthERC20 synthImpl = ISynthERC20(stoken);
         require(address(synthImpl) != address(0), "Synthesis: synth not set");
         require(synthByOriginal[synthImpl.chainIdFrom()][synthImpl.originalToken()] == stoken, "Synthesis: synth not set");
+        IAddressBook addressBookImpl = IAddressBook(addressBook);
+        address whitelist = addressBookImpl.whitelist();
+        require(IWhitelist(whitelist).tokenState(stoken) >= 0, "Synthesis: synth must be whitelisted");
         amountOut = amount;
         synthImpl.mint(to, amountOut);
         emit Synthesized(address(synthImpl), amount, from, to);
@@ -143,6 +147,10 @@ contract SynthesisV2 is EndPoint, AccessControlEnumerable  {
         } else {
             adapter = stoken;
         }
+        IAddressBook addressBookImpl = IAddressBook(addressBook);
+        address whitelist = addressBookImpl.whitelist();
+        // synth should have 0 (TokenState.NotSet) state
+        require(IWhitelist(whitelist).tokenState(adapter) >= 0, "Synthesis: synth must be whitelisted");
         ISynthAdapter impl = ISynthAdapter(adapter);
         impl.burn(from, amount);
         if (impl.chainIdFrom() != chainIdTo) {
