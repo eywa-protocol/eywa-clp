@@ -32,6 +32,8 @@ contract ThirdPartySynthAdapter is ISynthAdapter, Ownable {
     uint256 public cap;
     /// @dev original token decimals
     uint8 public decimals;
+    /// @dev released amount
+    uint256 public released;
 
     constructor(
         address originalToken_,
@@ -60,10 +62,13 @@ contract ThirdPartySynthAdapter is ISynthAdapter, Ownable {
         IERC20 erc20Impl = IERC20(synthToken);
         uint256 balance = erc20Impl.balanceOf(address(this));
         require(balance >= amount, "ThirdPartySynthAdapter: wrong amount");
+        require(released + amount <= cap, "ThirdPartySynthAdapter: cap exceeded");
+        released += amount;
         SafeERC20.safeTransfer(erc20Impl, account, amount);
     }
 
     function burn(address account, uint256 amount) external onlyOwner {
+        released -= amount;
         SafeERC20.safeTransferFrom(IERC20(synthToken), account, address(this), amount);
     }
 }
