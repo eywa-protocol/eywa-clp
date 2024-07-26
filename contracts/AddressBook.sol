@@ -36,7 +36,9 @@ contract AddressBook is IAddressBook, Ownable {
     /// @dev gate keeper address
     address public gateKeeper;
     /// @dev ops registrar address
-    address public opsRegistrar;
+    address public opsRegistrar;    
+    /// @dev wrapped native asset
+    address public WETH;
 
     event PortalSet(address portal, uint64 chainId);
     event SynthesisSet(address synthesis, uint64 chainId);
@@ -45,6 +47,7 @@ contract AddressBook is IAddressBook, Ownable {
     event WhitelistSet(address whitelist);
     event GateKeeperSet(address gateKeeper);
     event OpsRegistrarSet(address opsRegistrar);
+    event WETHSet(address opsRegistrar);
 
     function bridge() public view returns (address bridge_) {
         if (gateKeeper != address(0)) {
@@ -86,6 +89,12 @@ contract AddressBook is IAddressBook, Ownable {
         _checkAddress(opsRegistrar_);
         opsRegistrar = opsRegistrar_;
         emit OpsRegistrarSet(opsRegistrar);
+    }
+
+    function setWETH(address WETH_) external onlyOwner {
+        _checkAddress(WETH_);
+        WETH = WETH_;
+        emit WETHSet(WETH);
     }
 
     function _setRecords(mapping(uint64 => address) storage map_, Record[] memory records, RecordTypes rtype) private {

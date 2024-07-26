@@ -27,4 +27,7 @@ interface IAddressBook {
 
     /// @dev returns opsRegistrar
     function opsRegistrar() external view returns (address);
+
+    /// @dev returns wrapped native asset (WETH)
+    function WETH() external view returns (address);
 }

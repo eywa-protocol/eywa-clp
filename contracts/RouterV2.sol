@@ -46,7 +46,10 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
 
     constructor(address addressBook_) BaseRouter(addressBook_) {}
 
-    receive() external payable {}
+    receive() external payable {
+        address WETH = IAddressBook(addressBook).WETH();
+        require(msg.sender == WETH, "Router: Invalid sender");
+    }
 
     function receiveValidatedData(bytes4 selector, address from, uint64 chainIdFrom) external virtual onlyBridge returns (bool) {
         address router = IAddressBook(addressBook).router(chainIdFrom);
