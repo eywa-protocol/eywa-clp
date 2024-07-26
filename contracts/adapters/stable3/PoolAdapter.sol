@@ -179,15 +179,4 @@ contract PoolAdapterAave {
             SafeERC20.safeTransfer(IERC20(tokenOut), to, amountOut);
         }
     }
-
-    // function _isUnderlying(address pool, address tokenIn, uint8 i) internal view returns (bool underlying) {
-    //     IAavePool poolImpl = IAavePool(pool);
-    //     if (poolImpl.coins(i) == tokenIn) {
-    //         underlying = false;
-    //     } else if (poolImpl.underlying_coins(i) == tokenIn) {
-    //         underlying = true;
-    //     } else {
-    //         revert("PoolAdapterAave: params mismatch");
-    //     }
-    // }
 }
