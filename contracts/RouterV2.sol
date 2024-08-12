@@ -37,6 +37,8 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     bytes32 public constant EMERGENCY_MINT_CODE = keccak256(abi.encodePacked("!U"));
     /// @dev processed cross-chain ops (can't be reverted)
     mapping(bytes32 => CrossChainOpState) public processedOps;
+    /// @dev WETH address
+    address public WETH;
 
     modifier onlyBridge() {
         address bridge = IAddressBook(addressBook).bridge();
@@ -44,10 +46,12 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         _;
     }
 
-    constructor(address addressBook_) BaseRouter(addressBook_) {}
+    constructor(address addressBook_) BaseRouter(addressBook_) {
+        WETH = IAddressBook(addressBook).WETH();
+        require(WETH != address(0), "Router: WETH incorrect");
+    }
 
     receive() external payable {
-        address WETH = IAddressBook(addressBook).WETH();
         require(msg.sender == WETH, "Router: Invalid sender");
     }
 
