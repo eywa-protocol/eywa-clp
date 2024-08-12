@@ -29,3 +29,6 @@ amm_pool
 .openzeppelin
 hardhat-dependency-compiler
 coverage
+coverage.json
+scripts/**/*.json
+contractsForTest

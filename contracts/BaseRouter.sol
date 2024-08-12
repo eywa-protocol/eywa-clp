@@ -131,6 +131,8 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         require(operations.length < 2**8, "BaseRouter: wrong params count");
         require(operations.length == params.length, "BaseRouter: wrong params");
 
+        uint256 balanceBeforeStart = address(this).balance - msg.value;
+
         address opsRegistrar = IAddressBook(addressBook).opsRegistrar();
         {
             (bytes32 hash, bytes memory data) = _getRawData(operations, params);
@@ -145,6 +147,13 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
             ExecutionResult result,
             uint8 lastOp
         ) = _execute(0, operations, params);
+
+        uint256 newBalance = address(this).balance;
+
+        if(newBalance > balanceBeforeStart) {
+            (bool sent, ) = msg.sender.call{value: newBalance - balanceBeforeStart}("");
+            require(sent, "BaseRouter: failed to send ETH");
+        }
 
         emit ComplexOpProcessed(uint64(block.chainid), 0, chainIdTo, nextRequestId, result, lastOp);
     }
@@ -296,4 +305,3 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         ExecutionResult result
     );
 }
-
