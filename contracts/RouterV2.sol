@@ -74,7 +74,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
      */
     function start(
         string[] calldata operations,
-        bytes[] memory params,
+        bytes[] calldata params,
         Invoice calldata receipt
     ) external payable nonReentrant originNetwork {
         _start(operations, params, receipt);
@@ -84,7 +84,7 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         bytes32 requestId,
         uint8 cPos,
         string[] calldata operations,
-        bytes[] memory params
+        bytes[] calldata params
     ) external nonReentrant onlyBridge crosschainHandling(requestId) {
         _resume(requestId, cPos, operations, params);
     }
@@ -105,7 +105,6 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     ) internal virtual override returns (uint64 chainIdTo, bytes memory updatedParams, MaskedParams memory maskedParams, ExecutionResult result) {
         result = ExecutionResult.Succeeded;
         if (PERMIT_CODE == op) {
-            require(currentOpsIdx == 0, "Router: permit not allowed");
             PermitParams memory p = abi.decode(params, (PermitParams));
             try IERC20WithPermit(p.token).permit(
                     p.owner,
@@ -124,13 +123,13 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
             SynthParams memory p = abi.decode(params, (SynthParams));
             if (isOpHalfDone == false) {
                 (p.amountIn, p.from, p.emergencyTo) = _checkMaskedParams(p.amountIn, p.from, p.emergencyTo, prevMaskedParams);
-                p.to = _checkTo(p.to, p.emergencyTo, p.chainIdTo, nextOp);
-                address possibleAdapter;
+                p.to = _checkTo(p.to, p.emergencyTo, p.chainIdTo, op, nextOp);
                 if (LOCK_MINT_CODE == op) {
                     _lock(p);
+                    p.tokenInChainIdFrom = uint64(block.chainid);
                 } else {
                     address synthesis = IAddressBook(addressBook).synthesis(uint64(block.chainid));
-                    possibleAdapter = ISynthesisV2(synthesis).synthBySynth(p.tokenIn);
+                    address possibleAdapter = ISynthesisV2(synthesis).synthBySynth(p.tokenIn);
                     if (possibleAdapter != address(0)) {
                         if (p.from != synthesis) {
                             SafeERC20.safeTransferFrom(IERC20(p.tokenIn), p.from, synthesis, p.amountIn);
@@ -138,27 +137,23 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
                         p.from = synthesis;
                     } else {
                         // check for backward compatibility with deployed SynthesisV2
-                        IAddressBook addressBookImpl = IAddressBook(addressBook);
-                        address whitelist = addressBookImpl.whitelist();
+                        address whitelist = IAddressBook(addressBook).whitelist();
                         require(IWhitelist(whitelist).tokenState(p.tokenIn) >= 0, "Router: synth must be whitelisted");
                         possibleAdapter = p.tokenIn;
                     }
                     ISynthesisV2(synthesis).burn(p.tokenIn, p.amountIn, p.from, p.to, p.chainIdTo);
-                }
-                chainIdTo = p.chainIdTo;
-                if (LOCK_MINT_CODE != op) {
                     ISynthAdapter synthImpl = ISynthAdapter(possibleAdapter);
                     p.tokenIn = synthImpl.originalToken();
                     p.tokenInChainIdFrom = synthImpl.chainIdFrom();
-                } else {
-                    p.tokenInChainIdFrom = uint64(block.chainid);
                 }
+                chainIdTo = p.chainIdTo;
                 updatedParams = abi.encode(p);
             } else {
                 require(processedOps[currentRequestId] == CrossChainOpState.Unknown, "Router: op processed");
                 processedOps[currentRequestId] = CrossChainOpState.Succeeded;
+                // TODO: check
                 if (p.to == address(0)) {
-                    p.to = _checkTo(p.to, p.emergencyTo, p.chainIdTo, nextOp);
+                    p.to = _checkTo(p.to, p.emergencyTo, p.chainIdTo, op, nextOp);
                 }
                 maskedParams.amountOut = BURN_UNLOCK_CODE == op ? _unlock(p) : _mint(p);
                 maskedParams.to = p.to;
@@ -166,9 +161,8 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
             }
         } else if (WRAP_CODE == op || UNWRAP_CODE == op) {
             WrapParams memory p = abi.decode(params, (WrapParams));
-            address tmp;
-            (p.amountIn, p.from, tmp) = _checkMaskedParams(p.amountIn, p.from, address(0), prevMaskedParams);
-            p.to = _checkTo(p.to, p.to, uint64(block.chainid), nextOp);
+            (p.amountIn, p.from, ) = _checkMaskedParams(p.amountIn, p.from, address(0), prevMaskedParams);
+            p.to = _checkTo(p.to, address(0), uint64(block.chainid), op, nextOp);
             maskedParams.amountOut = WRAP_CODE == op ? _wrap(p) : _unwrap(p);
             maskedParams.to = p.to;
             maskedParams.emergencyTo = prevMaskedParams.emergencyTo;
@@ -179,14 +173,14 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
                 processedOps[p.requestId] = CrossChainOpState.Reverted;
                 chainIdTo = p.chainIdTo;
             } else {
-                bytes memory emergencyParams = startedOps[p.requestId];
-                require(emergencyParams.length != 0, "Router: op not started");
-                SynthParams memory eP = abi.decode(emergencyParams, (SynthParams));
+                bytes32 hashSynthParams = startedOps[p.requestId];
+                require(hashSynthParams != 0, "Router: op not started");
+                require(hashSynthParams == keccak256(abi.encode(p.emergencyParams)), "Router: wrong emergency parameters");
                 delete startedOps[p.requestId];
                 if (EMERGENCY_UNLOCK_CODE == op) {
-                    maskedParams.amountOut = _emergencyUnlock(eP);
+                    maskedParams.amountOut = _emergencyUnlock(p.emergencyParams);
                 } else {
-                    maskedParams.amountOut = _emergencyMint(eP);
+                    maskedParams.amountOut = _emergencyMint(p.emergencyParams);
                 }
             }
         } else {
@@ -227,7 +221,6 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     }
 
     function _wrap(WrapParams memory p) internal returns (uint256 amountOut) {
-        require(currentOpsIdx == 0, "Router: wrap not allowed");
         require(msg.value >= p.amountIn, "Router: invalid amount");
         IWETH9(p.tokenIn).deposit{ value: p.amountIn }();
         SafeERC20.safeTransfer(IERC20(p.tokenIn), p.to, p.amountIn);
@@ -235,7 +228,6 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
     }
 
     function _unwrap(WrapParams memory p) internal returns (uint256 amountOut) {
-        require(currentOpsIdx == (currentOpsCount - 1), "Router: unwrap not allowed");
         if (p.from != address(this)) {
             SafeERC20.safeTransferFrom(IERC20(p.tokenIn), p.from, address(this), p.amountIn);
         }
@@ -290,11 +282,16 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         }
     }
 
-    function _checkTo(address to, address emergencyTo, uint64 chainId, bytes32 nextOp) internal view virtual returns (address correctTo) {
-        require(to == address(0) || nextOp == bytes32(0), "Router: wrong to");
+    function _checkTo(address to, address emergencyTo, uint64 chainId, bytes32 currentOp, bytes32 nextOp) internal view virtual returns (address correctTo) {
+        require(
+            nextOp == bytes32(0) && to != address(0) || nextOp != bytes32(0) && to == address(0), 
+            "Router: wrong to"
+        );
+        if(currentRequestId == 0 && currentOp != WRAP_CODE && currentOp != UNWRAP_CODE) {
+            require(emergencyTo == msg.sender, "Router: emergencyTo is not equal the sender");
+        }
         if (nextOp == bytes32(0)) {
             correctTo = to;
-            require(correctTo == emergencyTo, "Router: wrong receiver");
         } else if (nextOp == LOCK_MINT_CODE) {
             correctTo = IAddressBook(addressBook).portal(chainId);
         } else if (nextOp == BURN_UNLOCK_CODE || nextOp == BURN_MINT_CODE) {
@@ -304,4 +301,32 @@ contract RouterV2 is BaseRouter, ReentrancyGuard, IRouter {
         }
     }
 
+    function _checkOperations(uint256 cPos, bytes32[] memory operationsCode) internal view override returns(bool) {
+        for(uint256 i = cPos; i < operationsCode.length - 1; i++) {
+            bytes32 operationCode = operationsCode[i];
+            if (currentRequestId != 0 && i == cPos && !(
+                    operationCode == LOCK_MINT_CODE ||
+                    operationCode == BURN_UNLOCK_CODE ||
+                    operationCode == BURN_MINT_CODE ||
+                    operationCode == EMERGENCY_UNLOCK_CODE ||
+                    operationCode == EMERGENCY_MINT_CODE
+                )
+            ) {
+                return false;
+            } else if ((operationCode == PERMIT_CODE || operationCode == WRAP_CODE) && i != 0) {
+                return false;
+            } else if (operationCode == UNWRAP_CODE && i != operationsCode.length - 2) {
+                return false;
+            } else if (operationCode == LOCK_MINT_CODE && operationsCode[i + 1] == LOCK_MINT_CODE) {
+                return false;
+            } else if (operationCode == BURN_UNLOCK_CODE && operationsCode[i + 1] == BURN_UNLOCK_CODE) {
+                return false;
+            } else if (operationCode == BURN_MINT_CODE && operationsCode[i + 1] == BURN_MINT_CODE) {
+                return false;
+            }  else if ((operationCode == EMERGENCY_UNLOCK_CODE || operationCode == EMERGENCY_MINT_CODE) && operationsCode.length > 2) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

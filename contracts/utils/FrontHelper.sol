@@ -77,7 +77,7 @@ contract FrontHelper {
         bytes callData;
     }
 
-    function aggregate(Call[] memory calls) public returns (uint256 blockNumber, bytes[] memory returnData) {
+    function aggregate(Call[] calldata calls) public returns (uint256 blockNumber, bytes[] memory returnData) {
         blockNumber = block.number;
         returnData = new bytes[](calls.length);
         for (uint256 i = 0; i < calls.length; i++) {
@@ -174,7 +174,7 @@ contract FrontHelper {
         return existPair;
     }
 
-    function poolsInfo(address target, address[] memory pairAddress) public view returns (PoolsInfo[] memory) {
+    function poolsInfo(address target, address[] calldata pairAddress) public view returns (PoolsInfo[] memory) {
         PoolsInfo[] memory pools = new PoolsInfo[](pairAddress.length);
 
         for (uint256 i = 0; i < pairAddress.length; i++) {

@@ -34,9 +34,7 @@ contract AddressBook is IAddressBook, Ownable {
     /// @dev whitelist address
     address public whitelist;
     /// @dev gate keeper address
-    address public gateKeeper;
-    /// @dev ops registrar address
-    address public opsRegistrar;    
+    address public gateKeeper;  
     /// @dev wrapped native asset
     address public WETH;
 
@@ -46,8 +44,7 @@ contract AddressBook is IAddressBook, Ownable {
     event TreasurySet(address treasury);
     event WhitelistSet(address whitelist);
     event GateKeeperSet(address gateKeeper);
-    event OpsRegistrarSet(address opsRegistrar);
-    event WETHSet(address opsRegistrar);
+    event WETHSet(address WETH);
 
     function bridge() public view returns (address bridge_) {
         if (gateKeeper != address(0)) {
@@ -55,15 +52,15 @@ contract AddressBook is IAddressBook, Ownable {
         }
     }
 
-    function setPortal(Record[] memory records) external onlyOwner {
+    function setPortal(Record[] calldata records) external onlyOwner {
         _setRecords(portal, records, RecordTypes.Portal);
     }
 
-    function setSynthesis(Record[] memory records) external onlyOwner {
+    function setSynthesis(Record[] calldata records) external onlyOwner {
         _setRecords(synthesis, records, RecordTypes.Synthesis);
     }
 
-    function setRouter(Record[] memory records) external onlyOwner {
+    function setRouter(Record[] calldata records) external onlyOwner {
         _setRecords(router, records, RecordTypes.Router);
     }
 
@@ -85,19 +82,13 @@ contract AddressBook is IAddressBook, Ownable {
         emit WhitelistSet(whitelist);
     }
 
-    function setOpsRegistrar(address opsRegistrar_) external onlyOwner {
-        _checkAddress(opsRegistrar_);
-        opsRegistrar = opsRegistrar_;
-        emit OpsRegistrarSet(opsRegistrar);
-    }
-
     function setWETH(address WETH_) external onlyOwner {
         _checkAddress(WETH_);
         WETH = WETH_;
         emit WETHSet(WETH);
     }
 
-    function _setRecords(mapping(uint64 => address) storage map_, Record[] memory records, RecordTypes rtype) private {
+    function _setRecords(mapping(uint64 => address) storage map_, Record[] calldata records, RecordTypes rtype) private {
         for (uint256 i = 0; i < records.length; ++i) {
             _checkAddress(records[i].clpEndPoint);
             map_[records[i].chainId] = records[i].clpEndPoint;

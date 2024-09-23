@@ -11,7 +11,6 @@ import "./EndPoint.sol";
 import "./interfaces/IGateKeeper.sol";
 import "./interfaces/IRouterV2.sol";
 import "./interfaces/IAddressBook.sol";
-import "./interfaces/IOpsRegistrar.sol";
 import "./utils/RequestIdLib.sol";
 
 
@@ -35,19 +34,13 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     mapping(address => Counters.Counter) private _nonces;
     
     /// @dev started crocss-chain ops, requestId => serialized op params
-    mapping(bytes32 => bytes) public startedOps;
+    mapping(bytes32 => bytes32) public startedOps;
 
     /// @dev used to check is function called from resume\onlyBridge handler, otherwise not set 
     bytes32 internal currentRequestId;
 
     /// @dev should be set between receiveValidatedData and resume call
     uint64 internal currentChainIdFrom;
-
-    /// @dev current ops index
-    uint256 internal currentOpsIdx;
-
-    /// @dev current ops count
-    uint256 internal currentOpsCount;
 
     /// @dev should be true when start proceeding (only on initial call)
     bool internal isOriginNetwork;
@@ -69,6 +62,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     }
 
     modifier crosschainHandling(bytes32 requestId) {
+        require(requestId != 0, "BaseRouter: requestId is zero");
         currentRequestId = requestId;
         _;
         currentRequestId = 0;
@@ -125,7 +119,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
      */
     function _start(
         string[] calldata operations,
-        bytes[] memory params,
+        bytes[] calldata params,
         IRouterParams.Invoice calldata receipt
     ) internal virtual {
         require(operations.length < 2**8, "BaseRouter: wrong params count");
@@ -133,10 +127,8 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
 
         uint256 balanceBeforeStart = address(this).balance - msg.value;
 
-        address opsRegistrar = IAddressBook(addressBook).opsRegistrar();
         {
             (bytes32 hash, bytes memory data) = _getRawData(operations, params);
-            require(IOpsRegistrar(opsRegistrar).ops(hash) == true, "BaseRouter: complex op not registered");
             address accountant = _checkSignature(msg.sender, hash, data, receipt);
             _proceedFees(receipt.executionPrice, accountant);
         }
@@ -162,7 +154,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         bytes32 requestId,
         uint8 cPos,
         string[] calldata operations,
-        bytes[] memory params
+        bytes[] calldata params
     ) internal virtual {
         require(operations.length < 2**8, "BaseRouter: wrong params count");
         require(operations.length == params.length, "BaseRouter: wrong params");
@@ -186,13 +178,13 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
     ) {
         MaskedParams memory maskedParams;
         bytes memory updatedParams;
-        currentOpsCount = operations.length;
         for (uint256 i = cPos; i < operations.length; ++i) {
-            currentOpsIdx = i;
+            bytes32[] memory operationsCode = _getOperationsCode(operations);
+            require(_checkOperations(cPos, operationsCode), "Router: wrong sequence of operations");
             (chainIdTo, updatedParams, maskedParams, result) = _executeOp(
                 (currentRequestId != 0 && i == cPos),
-                keccak256(bytes(operations[i])),
-                i < (operations.length - 1) ? keccak256(bytes(operations[i + 1])) : bytes32(0),
+                operationsCode[i],
+                operationsCode[i + 1],
                 params[i],
                 maskedParams
             );
@@ -215,12 +207,19 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
                 );
                 address gateKeeper = IAddressBook(addressBook).gateKeeper();
                 IGateKeeper(gateKeeper).sendData(out, router, chainIdTo, address(0));
-                startedOps[nextRequestId] = params[i];
+                startedOps[nextRequestId] = keccak256(params[i]);
                 break;
             }
         }
-        currentOpsIdx = 0;
-        currentOpsCount = 0;
+    }
+
+    function _getOperationsCode(string[] calldata operations) internal pure returns(bytes32[] memory) {
+        bytes32[] memory operationsCode = new bytes32[](operations.length + 1);
+        for (uint256 i = 0; i < operations.length; i++) {
+            operationsCode[i] = keccak256(bytes(operations[i]));
+        }
+        operationsCode[operationsCode.length - 1] = bytes32(0);
+        return operationsCode;
     }
 
     /**
@@ -264,7 +263,7 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
 
     function _getRawData(
         string[] calldata operations,
-        bytes[] memory params
+        bytes[] calldata params
     ) internal pure returns (bytes32 hash, bytes memory data) {
         bytes memory op;
         for (uint256 i = 0; i < operations.length; ++i) {
@@ -304,4 +303,6 @@ abstract contract BaseRouter is Pausable, EIP712, EndPoint, AccessControlEnumera
         MaskedParams memory maskedParams,
         ExecutionResult result
     );
+
+    function _checkOperations(uint256 cPos, bytes32[] memory operationsCode) internal view virtual returns(bool);
 }

@@ -42,6 +42,7 @@ interface IRouterParams {
     struct CancelParams {
         bytes32 requestId;
         uint64 chainIdTo;
+        SynthParams emergencyParams;
     }
 
     /**

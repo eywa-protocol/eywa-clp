@@ -1,128 +1,212 @@
-const { ethers, upgrades } = require('hardhat');
+const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
+const { ethers } = require('hardhat');
 const { expect } = require('chai');
-const { BN } = require('@openzeppelin/test-helpers');
+const { parse18 } = require('../../utils/common');
+const AddressZero = ethers.constants.AddressZero;
+
+const {
+  deployWhitelistV2
+} = require('../setup/setup-contracts');
 
 describe('Whitelist unit tests', () => {
 
-  let whitelist;
+  async function deploy(){
 
-  const chainId = network.config.chainId;
-  const bridgeAddress = '0x0000000000000000000000000000000000000042';
-  const someToken = '0x0000000000000000000000000000000000000088';
-  const somePool = '0x0000000000000000000000000000000000000007';
+    let whitelist;
+    let owner, malory;
+
+    const chainId = network.config.chainId;
+    const bridgeAddress = '0x0000000000000000000000000000000000000042';
+    const tokenAddress = '0x0000000000000000000000000000000000000088';
+    const poolAddress = '0x0000000000000000000000000000000000000007';
+
+    const tokenAmountMin = parse18('10')
+    const tokenAmountMax = parse18('10000')
+    const bridgeFee = 1;
+    const aggregationFee = 1;
+
+    const TokenState = { NotSet: 0, InOut: 1 };
+    const PoolState = { NotSet: 0, AddSwapRemove: 1 };
+
+    [owner, malory] = await ethers.getSigners();
   
-  const TokenState = { NotSet: 0, InOut: 1 };
-  const PoolState = { NotSet: 0, AddSwapRemove: 1 };
+    // deployment contracts
+    whitelist = await deployWhitelistV2();
 
-  let owner, alice, mallory;
+    return {
+      whitelist,
+      owner, malory,
+      chainId, bridgeAddress, tokenAddress, poolAddress,
+      tokenAmountMin, tokenAmountMax, bridgeFee, aggregationFee,
+      TokenState, PoolState
+    }
+  }
 
-  // Deploy all contracts before each test suite
-  beforeEach(async () => {
-    // eslint-disable-next-line no-undef
-    [owner, alice, mallory] = await ethers.getSigners();
+  describe("Should checking the correct operation of the setTokens() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't owner", async () => {
+        const { whitelist, malory, tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState } = await loadFixture(deploy);
 
-    let factory = await ethers.getContractFactory('WhitelistV2');
-    whitelist = await factory.deploy();
-    await whitelist.deployed();
+        expect(malory.address).to.not.equal(await whitelist.owner());
+
+        await expect(whitelist.connect(malory).setTokens([[tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState.InOut]]))
+          .revertedWith("Ownable: caller is not the owner");
+      });
+      it('Should check require if address wrong', async() => {
+        const { whitelist, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState } = await loadFixture(deploy);
+
+        await expect(whitelist.setTokens([[AddressZero, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState.InOut]]))
+          .revertedWith('Whitelist: zero address');
+      });
+      it('Should check require if min max wrong', async() => {
+        const { whitelist, tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState } = await loadFixture(deploy);
+
+        await expect(whitelist.setTokens([[tokenAddress, tokenAmountMax, tokenAmountMin, bridgeFee, TokenState.InOut]]))
+          .revertedWith('Whitelist: min max wrong');
+      });
+      it('Should check require if bridgeFee wrong', async() => {
+        const { whitelist, tokenAddress, tokenAmountMin, tokenAmountMax, TokenState } = await loadFixture(deploy);
+
+        const wrongBridgeFee = (await whitelist.FEE_DENOMINATOR()).add(1);
+
+        await expect(whitelist.setTokens([[tokenAddress, tokenAmountMin, tokenAmountMax, wrongBridgeFee, TokenState.InOut]]))
+          .revertedWith('Whitelist: fee > 100%');
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it('Should check correct set token', async() => {
+        const { whitelist, tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState } = await loadFixture(deploy);
+
+        const tx = await whitelist.setTokens([[tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState.InOut]]);
+        await tx.wait();
+
+        expect(await whitelist.tokenMin(tokenAddress)).to.equal(tokenAmountMin);
+        expect(await whitelist.tokenMax(tokenAddress)).to.equal(tokenAmountMax);
+        expect(await whitelist.bridgeFee(tokenAddress)).to.equal(bridgeFee);
+        expect(await whitelist.tokenState(tokenAddress)).to.equal(TokenState.InOut);
+
+        const minMax = await whitelist.tokenMinMax(tokenAddress);
+        expect(minMax[0]).to.equal(tokenAmountMin);
+        expect(minMax[1]).to.equal(tokenAmountMax);
+
+        const token = await whitelist.tokenStatus(tokenAddress);
+        expect(token.token).to.equal(tokenAddress);
+        expect(token.min).to.equal(tokenAmountMin);
+        expect(token.max).to.equal(tokenAmountMax);
+        expect(token.bridgeFee).to.equal(bridgeFee);
+        expect(token.state).to.equal(TokenState.InOut);
+    
+        const tokens = await whitelist.tokens(0, 100);
+        expect(tokens.length).to.equal(1);
+        expect(tokens[0].token).to.equal(tokenAddress);
+        expect(tokens[0].min).to.equal(tokenAmountMin);
+        expect(tokens[0].max).to.equal(tokenAmountMax);
+        expect(tokens[0].bridgeFee).to.equal(bridgeFee);
+        expect(tokens[0].state).to.equal(TokenState.InOut);
+      });
+      it('Should check correct update token', async() => {
+        const { whitelist, tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState } = await loadFixture(deploy);
+
+        let tx = await whitelist.setTokens([[tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState.InOut]]);
+        await tx.wait();
+
+        const newTokenAmountMin = tokenAmountMin.add(1);
+        const newTokenAmountMax = tokenAmountMax.add(1);
+        const newBridgeFee = bridgeFee + 1;
+
+        tx = await whitelist.setTokens([[tokenAddress, newTokenAmountMin, newTokenAmountMax, newBridgeFee, TokenState.NotSet]]);
+        await tx.wait();
+        
+        const token = await whitelist.tokenStatus(tokenAddress);
+        expect(token.token).to.equal(tokenAddress);
+        expect(token.min).to.equal(newTokenAmountMin);
+        expect(token.max).to.equal(newTokenAmountMax);
+        expect(token.bridgeFee).to.equal(newBridgeFee);
+        expect(token.state).to.equal(TokenState.NotSet);
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event TokenSet", async () => {
+        const { whitelist, tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState } = await loadFixture(deploy);
+
+        await expect(whitelist.setTokens([[tokenAddress, tokenAmountMin, tokenAmountMax, bridgeFee, TokenState.InOut]]))
+          .emit(whitelist, "TokenSet")
+          .withArgs(tokenAddress, tokenAmountMax, tokenAmountMin, bridgeFee, TokenState.InOut);
+      });
+    });
   });
 
-  it('should set token', async() => {
-    const min = ethers.utils.parseEther('1');
-    const max = ethers.utils.parseEther('10000');
-    const fee = 10; // 0.1%
-    await whitelist.setTokens([[someToken, min, max, fee, TokenState.InOut]]);
-    expect(await whitelist.tokenMin(someToken)).to.equal(min);
-    expect(await whitelist.tokenMax(someToken)).to.equal(max);
-    expect(await whitelist.bridgeFee(someToken)).to.equal(fee);
-    expect(await whitelist.tokenState(someToken)).to.equal(TokenState.InOut);
-    const minMax = await whitelist.tokenMinMax(someToken);
-    expect(minMax[0]).to.equal(min);
-    expect(minMax[1]).to.equal(max);
-    const token = await whitelist.tokenStatus(someToken);
-    expect(token.token).to.equal(someToken);
-    expect(token.min).to.equal(min);
-    expect(token.max).to.equal(max);
-    expect(token.bridgeFee).to.equal(fee);
-    expect(token.state).to.equal(TokenState.InOut);
+  describe("Should checking the correct operation of the setPools() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't owner", async () => {
+        const { whitelist, malory, poolAddress, aggregationFee, PoolState } = await loadFixture(deploy);
 
-    const tokens = await whitelist.tokens(0, 100);
-    expect(tokens.length).to.equal(1);
-    expect(tokens[0].token).to.equal(someToken);
-    expect(tokens[0].min).to.equal(min);
-    expect(tokens[0].max).to.equal(max);
-    expect(tokens[0].bridgeFee).to.equal(fee);
-    expect(tokens[0].state).to.equal(TokenState.InOut);
+        expect(malory.address).to.not.equal(await whitelist.owner());
+
+        await expect(whitelist.connect(malory).setPools([[poolAddress, aggregationFee, PoolState.AddSwapRemove]]))
+          .revertedWith('Ownable: caller is not the owner');
+      });
+      it('Should check require if address wrong', async() => {
+        const { whitelist, aggregationFee, PoolState } = await loadFixture(deploy);
+
+        await expect(whitelist.setPools([[AddressZero, aggregationFee, PoolState.AddSwapRemove]]))
+          .to.be.revertedWith('Whitelist: zero address');
+      });
+      it('Should check require if aggregationFee wrong', async() => {
+        const { whitelist, poolAddress, PoolState } = await loadFixture(deploy);
+
+        const wrongAggregationFee = (await whitelist.FEE_DENOMINATOR()).add(1);
+
+        await expect(whitelist.setPools([[poolAddress, wrongAggregationFee, PoolState.AddSwapRemove]]))
+          .revertedWith('Whitelist: fee > 100%');
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it('Should check correct set pool', async() => {
+        const { whitelist, poolAddress, aggregationFee, PoolState } = await loadFixture(deploy);
+
+        const tx = await whitelist.setPools([[poolAddress, aggregationFee, PoolState.AddSwapRemove]]);
+        await tx.wait();
+
+        expect(await whitelist.aggregationFee(poolAddress)).to.equal(aggregationFee);
+        expect(await whitelist.poolState(poolAddress)).to.equal(PoolState.AddSwapRemove);
+
+        const pool = await whitelist.poolStatus(poolAddress);
+        expect(pool.pool).to.equal(poolAddress);
+        expect(pool.aggregationFee).to.equal(aggregationFee);
+        expect(pool.state).to.equal(PoolState.AddSwapRemove);
+    
+        const pools = await whitelist.pools(0, 100);
+        expect(pools.length).to.equal(1);
+        expect(pools[0].pool).to.equal(poolAddress);
+        expect(pools[0].aggregationFee).to.equal(aggregationFee);
+        expect(pools[0].state).to.equal(PoolState.AddSwapRemove);
+      });
+      it('Should check correct update pool', async() => {
+        const { whitelist, poolAddress, aggregationFee, PoolState } = await loadFixture(deploy);
+
+        let tx = await whitelist.setPools([[poolAddress, aggregationFee, PoolState.AddSwapRemove]]);
+        await tx.wait();
+
+        const newAggregationFee = aggregationFee + 1;
+
+        tx = await whitelist.setPools([[poolAddress, newAggregationFee, PoolState.NotSet]]);
+        await tx.wait();
+
+        const pool = await whitelist.poolStatus(poolAddress);
+        expect(pool.pool).to.equal(poolAddress);
+        expect(pool.aggregationFee).to.equal(newAggregationFee);
+        expect(pool.state).to.equal(PoolState.NotSet);
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event PoolSet", async () => {
+        const { whitelist, poolAddress, aggregationFee, PoolState } = await loadFixture(deploy);
+
+        await expect(whitelist.setPools([[poolAddress, aggregationFee, PoolState.AddSwapRemove]]))
+          .emit(whitelist, "PoolSet")
+          .withArgs(poolAddress, aggregationFee, PoolState.AddSwapRemove);
+      });
+    });
   });
-
-  it('shouldn\'t set token if address wrong', async() => {
-    await expect(whitelist.setTokens([[ethers.constants.AddressZero, 0, 0, 0, TokenState.InOut]]))
-      .to.be.revertedWith('Whitelist: zero address');
-  });
-
-  it('shouldn\'t set token if address wrong', async() => {
-    await expect(whitelist.setTokens([[someToken, 10000, 1, 0, TokenState.InOut]]))
-      .to.be.revertedWith('Whitelist: min max wrong');
-  });
-
-  it('shouldn\'t set token if caller is not an owner', async() => {
-    // const message = `AccessControl: account ${notAdmin.address.toLowerCase()} is missing role ${await govBridge.DEFAULT_ADMIN_ROLE()}`;
-    await expect(whitelist.connect(mallory).setTokens([[someToken, 10000, 1, 0, TokenState.InOut]]))
-      .to.be.revertedWith('Ownable: caller is not the owner');
-  });
-
-  it('should update token', async() => {
-    let min = ethers.utils.parseEther('1');
-    let max = ethers.utils.parseEther('10000');
-    let fee = 10; // 0.1%
-    await whitelist.setTokens([[someToken, min, max, fee, TokenState.InOut]]);
-    min = ethers.utils.parseEther('10');
-    max = ethers.utils.parseEther('100000');
-    fee = 100;
-    await whitelist.setTokens([[someToken, min, max, fee, TokenState.NotSet]]);
-    const token = await whitelist.tokenStatus(someToken);
-    expect(token.token).to.equal(someToken);
-    expect(token.min).to.equal(min);
-    expect(token.max).to.equal(max);
-    expect(token.bridgeFee).to.equal(fee);
-    expect(token.state).to.equal(TokenState.NotSet);
-  });
-
-  it('should set pool', async() => {
-    const fee = 10; // 0.1%
-    await whitelist.setPools([[somePool, fee, PoolState.AddSwapRemove]]);
-    expect(await whitelist.aggregationFee(somePool)).to.equal(fee);
-    expect(await whitelist.poolState(somePool)).to.equal(PoolState.AddSwapRemove);
-    const pool = await whitelist.poolStatus(somePool);
-    expect(pool.pool).to.equal(somePool);
-    expect(pool.aggregationFee).to.equal(fee);
-    expect(pool.state).to.equal(PoolState.AddSwapRemove);
-
-    const pools = await whitelist.pools(0, 100);
-    expect(pools.length).to.equal(1);
-    expect(pools[0].pool).to.equal(somePool);
-    expect(pools[0].aggregationFee).to.equal(fee);
-    expect(pools[0].state).to.equal(PoolState.AddSwapRemove);
-  });
-
-  it('shouldn\'t set pool if address wrong', async() => {
-    await expect(whitelist.setPools([[ethers.constants.AddressZero, 0, PoolState.AddSwapRemove]]))
-      .to.be.revertedWith('Whitelist: zero address');
-  });
-
-  it('shouldn\'t set pool if caller is not an owner', async() => {
-    await expect(whitelist.connect(mallory).setPools([[somePool, 0, PoolState.AddSwapRemove]]))
-      .to.be.revertedWith('Ownable: caller is not the owner');
-  });
-
-  it('should update pool', async() => {
-    let fee = 10; // 0.1%
-    await whitelist.setPools([[somePool, fee, PoolState.AddSwapRemove]]);
-    fee = 100;
-    await whitelist.setPools([[somePool, fee, PoolState.NotSet]]);
-    const pool = await whitelist.poolStatus(somePool);
-    expect(pool.pool).to.equal(somePool);
-    expect(pool.aggregationFee).to.equal(fee);
-    expect(pool.state).to.equal(PoolState.NotSet);
-  });
-
 });
