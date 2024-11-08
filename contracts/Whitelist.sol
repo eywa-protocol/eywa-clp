@@ -81,7 +81,7 @@ contract WhitelistV2 is IWhitelist, Ownable {
         return pools_;
     }
 
-    function setTokens(IWhitelist.TokenStatus[] memory tokens_) external onlyOwner {
+    function setTokens(IWhitelist.TokenStatus[] calldata tokens_) external onlyOwner {
         uint256 count = tokens_.length;
         for (uint256 i; i < count; ++i) {
             IWhitelist.TokenStatus memory status = tokens_[i];
@@ -100,7 +100,7 @@ contract WhitelistV2 is IWhitelist, Ownable {
         }
     }
 
-    function setPools(IWhitelist.PoolStatus[] memory pools_) external onlyOwner {
+    function setPools(IWhitelist.PoolStatus[] calldata pools_) external onlyOwner {
         uint256 count = pools_.length;
         for (uint256 i; i < count; ++i) {
             IWhitelist.PoolStatus memory status = pools_[i];

@@ -85,8 +85,8 @@ contract PoolAdapterAave {
      * @param to Address where the output tokens will be transferred;
      * @param pool Address of the pool contract;
      * @param minAmountOut Minimum amount of coin to receive;
-     * @param i Index of the input token (if > n, it's undrlying);
-     * @param j Index of the output token (if > n, it's undrlying);
+     * @param i Index of the input token (if > n, it's underlying);
+     * @param j Index of the output token (if > n, it's underlying);
      * @param emergencyTo Emergency to address in case of inconsistency.
      */
     function swap(
@@ -105,7 +105,6 @@ contract PoolAdapterAave {
         j = isUnderlying ? j - n : j;
 
         IERC20 erc20Impl = IERC20(isUnderlying ? IAavePool(pool).underlying_coins(i) : IAavePool(pool).coins(i));
-        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
 
         require(tokenIn == address(erc20Impl), "PoolAdapterAave: wrong params");
 
@@ -116,10 +115,14 @@ contract PoolAdapterAave {
         } else {
             minDy = IAavePool(pool).get_dy(int128(uint128(i)), int128(uint128(j)), amountIn);
         }
+
         if (minAmountOut > minDy) {
             SafeERC20.safeTransfer(erc20Impl, emergencyTo, amountIn);
             return 0;
         }
+        
+        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
+
         if (isUnderlying) {
             amountOut = IAavePool(pool).exchange_underlying(int128(uint128(i)), int128(uint128(j)), amountIn, 0);
             tokenOut = IAavePool(pool).underlying_coins(j);
@@ -176,15 +179,4 @@ contract PoolAdapterAave {
             SafeERC20.safeTransfer(IERC20(tokenOut), to, amountOut);
         }
     }
-
-    // function _isUnderlying(address pool, address tokenIn, uint8 i) internal view returns (bool underlying) {
-    //     IAavePool poolImpl = IAavePool(pool);
-    //     if (poolImpl.coins(i) == tokenIn) {
-    //         underlying = false;
-    //     } else if (poolImpl.underlying_coins(i) == tokenIn) {
-    //         underlying = true;
-    //     } else {
-    //         revert("PoolAdapterAave: params mismatch");
-    //     }
-    // }
 }

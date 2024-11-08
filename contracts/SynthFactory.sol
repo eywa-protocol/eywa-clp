@@ -32,10 +32,10 @@ contract SynthFactory is AccessControlEnumerable {
     function getCustomSynth(
         address originalToken_,
         uint8 decimals_,
-        string memory name_,
-        string memory symbol_,
+        string calldata name_,
+        string calldata symbol_,
         uint64 chainIdFrom_,
-        string memory chainSymbolFrom_
+        string calldata chainSymbolFrom_
     ) external view returns (address stoken) {
         stoken = _getSynth(
             originalToken_,
@@ -51,10 +51,10 @@ contract SynthFactory is AccessControlEnumerable {
     function getDefaultSynth(
         address originalToken_,
         uint8 decimals_,
-        string memory originalName_,
-        string memory originalSymbol_,
+        string calldata originalName_,
+        string calldata originalSymbol_,
         uint64 chainIdFrom_,
-        string memory chainSymbolFrom_
+        string calldata chainSymbolFrom_
     ) external view returns (address stoken) {
         stoken = _getSynth(
             originalToken_,
@@ -70,10 +70,10 @@ contract SynthFactory is AccessControlEnumerable {
     function deployCustomSynth(
         address originalToken_,
         uint8 decimals_,
-        string memory name_,
-        string memory symbol_,
+        string calldata name_,
+        string calldata symbol_,
         uint64 chainIdFrom_,
-        string memory chainSymbolFrom_
+        string calldata chainSymbolFrom_
     ) external onlyRole(OPERATOR_ROLE) returns (address stoken) {
         stoken = _deploySynth(
             originalToken_,
@@ -89,10 +89,10 @@ contract SynthFactory is AccessControlEnumerable {
     function deployDefaultSynth(
         address originalToken_,
         uint8 decimals_,
-        string memory originalName_,
-        string memory originalSymbol_,
+        string calldata originalName_,
+        string calldata originalSymbol_,
         uint64 chainIdFrom_,
-        string memory chainSymbolFrom_
+        string calldata chainSymbolFrom_
     ) external onlyRole(OPERATOR_ROLE) returns (address stoken) {
         stoken = _deploySynth(
             originalToken_,
@@ -111,7 +111,7 @@ contract SynthFactory is AccessControlEnumerable {
         string memory name_,
         string memory symbol_,
         uint64 chainIdFrom_,
-        string memory chainSymbolFrom_,
+        string calldata chainSymbolFrom_,
         ISynthAdapter.SynthType synthType_
     ) private view returns (address stoken) {
         stoken = Create2.computeAddress(
@@ -129,7 +129,7 @@ contract SynthFactory is AccessControlEnumerable {
         string memory name_,
         string memory symbol_,
         uint64 chainIdFrom_,
-        string memory chainSymbolFrom_,
+        string calldata chainSymbolFrom_,
         ISynthAdapter.SynthType synthType_
     ) private returns (address stoken) {
         stoken = Create2.deploy(

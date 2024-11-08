@@ -1,152 +1,370 @@
+const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 const { ethers } = require('hardhat');
 const { expect } = require('chai');
+const { parse18 } = require('../../utils/common');
+const AddressZero = ethers.constants.AddressZero;
+
+const {
+  deployAddressBook,
+  deployWhitelistV2,
+  deployTestTokenPermit,
+  deployPortalV2
+} = require('../setup/setup-contracts');
+
 
 describe('Portal unit tests', () => {
 
-  let addressBook, whitelist, portal, usdt, treasury, owner, alice, newAddressBook, router;
-
-  const chainId = network.config.chainId;
-
-  beforeEach(async () => {
+  async function deploy(){
     // eslint-disable-next-line no-undef
-    [owner, alice, newAddressBook, router] = await ethers.getSigners();
 
-    let factory = await ethers.getContractFactory('AddressBook');
-    addressBook = await factory.deploy();
-    await addressBook.deployed();
+    const TokenState = {
+      NotSet: 0,
+      InOut: 1
+    }
 
-    factory = await ethers.getContractFactory('WhitelistV2');
-    whitelist = await factory.deploy();
-    await whitelist.deployed();
+    let portal, addressBook, whitelist, testToken;
+    let owner, alice, malory, routerContract, feesTreasuryContract;
+  
+    const tokenAmountMin = parse18('10');
+    const tokenAmountMax = parse18('10000');
+    const tokenAmount = parse18('100');
 
-    factory = await ethers.getContractFactory('PortalV2');
-    portal = await factory.deploy(addressBook.address);
-    await portal.deployed();
+    const someAddress = '0x0000000000000000000000000000000000000123';
 
-    factory = await ethers.getContractFactory('FeesTreasury');
-    treasury = await factory.deploy();
-    await treasury.deployed();
+    const chainIdCurrent = network.config.chainId;
+    
+    const fee = 1;
 
-    await addressBook.setWhitelist(whitelist.address);
-    await addressBook.setPortal([[chainId, portal.address]]);
-    await addressBook.setRouter([[chainId, router.address]]);
-    await addressBook.setTreasury(treasury.address);
+    [owner, alice, malory, routerContract, feesTreasuryContract] = await ethers.getSigners();
 
-    factory = await ethers.getContractFactory('TestTokenPermit');
-    usdt = await factory.deploy('USDT', 'USDT', 18);
-    await usdt.deployed();
+
+    // deployment contracts
+    addressBook = await deployAddressBook();
+    whitelist = await deployWhitelistV2();
+    portal = await deployPortalV2([addressBook.address]);
+    testToken = await deployTestTokenPermit(['USDT', 'USDT', 18]);
+
+    // preparatory actions
+    let tx = await addressBook.setWhitelist(whitelist.address);
+    await tx.wait();
+    tx = await addressBook.setPortal([[chainIdCurrent, portal.address]]);
+    await tx.wait();
+
+
+    // contrats emulation
+    tx = await addressBook.setRouter([[chainIdCurrent, routerContract.address]]);
+    await tx.wait();
+    tx = await addressBook.setTreasury(feesTreasuryContract.address);
+    await tx.wait();
+
+    return {
+      portal, addressBook, whitelist, testToken,
+      owner, alice, malory, routerContract, feesTreasuryContract,
+      chainIdCurrent, someAddress,
+      tokenAmountMin, tokenAmountMax, tokenAmount,
+      fee, TokenState
+    }
+  }
+
+  describe("Should checking the values initialized on deploy", () => {
+    it("Should check correct set addressBook", async () => {
+      const { portal, addressBook } = await loadFixture(deploy);
+
+      expect(await portal.addressBook()).to.equal(addressBook.address);
+    });
   });
 
-  it('should lock tokens', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await portal.connect(router).lock(usdt.address, 100, owner.address, alice.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(100)
+  describe("Should checking the correct operation of the setAddressBook() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't owner", async () => {
+        const { portal, malory, someAddress } = await loadFixture(deploy);
+
+        expect(await portal.owner()).to.not.equal(malory.address);
+
+        await expect(portal.connect(malory).setAddressBook(someAddress))
+          .revertedWith("Ownable: caller is not the owner");
+      });
+      it("Should check require if new address is zero", async () => {
+        const { portal, owner } = await loadFixture(deploy);
+
+        expect(await portal.owner()).to.equal(owner.address);
+
+        await expect(portal.connect(owner).setAddressBook(AddressZero))
+          .revertedWith("EndPoint: zero address");
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check change addressBook", async () => {
+        const { portal, owner, someAddress } = await loadFixture(deploy);
+
+        expect(await portal.owner()).to.equal(owner.address);
+
+        const tx = await portal.connect(owner).setAddressBook(someAddress);
+        await tx.wait();
+
+        expect(await portal.addressBook()).to.equal(someAddress);
+      });
+    });
   });
 
-  it('shouldn\'t lock tokens if no tokens on portal', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await expect(portal.connect(router).lock(usdt.address, 100, owner.address, alice.address)).to.be.revertedWith('Portal: insufficient balance')
+  describe("Should checking the correct operation of the lock() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't router", async () => {
+        const { portal, testToken, alice, malory, routerContract, tokenAmount } = await loadFixture(deploy);
+      
+        expect(malory.address).to.not.equal(routerContract);
+
+        await expect(portal.connect(malory).lock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: router only')
+      });
+      it("Should check require if token not set in whitelist", async () => {
+        const { portal, testToken, alice, routerContract, tokenAmount } = await loadFixture(deploy);
+
+        await expect(portal.connect(routerContract).lock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Whitelist: token not set')
+      });
+      it("Should check require if worng amount token", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, fee, TokenState } = await loadFixture(deploy);
+      
+        const tx = await whitelist.setTokens([[testToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.InOut]]);
+        await tx.wait();
+
+        const worngTokenAmountMin = tokenAmountMin.sub(1);
+
+        await expect(portal.connect(routerContract).lock(testToken.address, worngTokenAmountMin, alice.address, alice.address))
+          .revertedWith('Portal: wrong amount')
+
+        const worngTokenAmountMax = tokenAmountMax.add(1);
+
+        await expect(portal.connect(routerContract).lock(testToken.address, worngTokenAmountMax, alice.address, alice.address))
+          .revertedWith('Portal: wrong amount')
+      });
+      it("Should check require if token set in whitelist as NotSet", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        const tx = await whitelist.setTokens([[testToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.NotSet]]);
+        await tx.wait();
+
+        await expect(portal.connect(routerContract).lock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: token must be whitelisted')
+      });
+      it("Should check require if insufficient balance", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+
+        let tx = await whitelist.setTokens([[testToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.InOut]]);
+        await tx.wait();
+
+        let balanceInPortal = await portal.balanceOf(testToken.address);
+        let currentBalance = await testToken.balanceOf(portal.address);
+        let balanceDifferent = currentBalance.sub(balanceInPortal);
+
+        expect(balanceDifferent).to.lt(tokenAmount);
+
+        await expect(portal.connect(routerContract).lock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: insufficient balance')
+
+        const worngAmountToken = tokenAmount.sub(1);
+
+        tx = await testToken.mint(alice.address, worngAmountToken);
+        await tx.wait();
+        tx = await testToken.connect(alice).transfer(portal.address, worngAmountToken);
+        await tx.wait();
+
+        balanceInPortal = await portal.balanceOf(testToken.address);
+        currentBalance = await testToken.balanceOf(portal.address);
+        balanceDifferent = currentBalance.sub(balanceInPortal);
+
+        expect(balanceDifferent).to.lt(tokenAmount);
+
+        await expect(portal.connect(routerContract).lock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: insufficient balance')
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change value in balanceOf", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+
+        await setupMintTransferToken(portal, whitelist, testToken, alice, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        const balanceInPortalBefore = await portal.balanceOf(testToken.address);
+        const currentBalance = await testToken.balanceOf(portal.address);
+        const balanceDifferentBefore = currentBalance.sub(balanceInPortalBefore);
+
+        expect(balanceDifferentBefore).to.gte(tokenAmount);
+
+        tx = await portal.connect(routerContract).lock(testToken.address, tokenAmount, alice.address, alice.address);
+        await tx.wait();
+
+        const balanceInPortalAfter = await portal.balanceOf(testToken.address);
+        const balanceDifferentAfter = currentBalance.sub(balanceInPortalAfter);
+
+        expect(balanceDifferentAfter).to.equal(balanceDifferentBefore.sub(tokenAmount));
+        expect(balanceInPortalAfter).to.equal(balanceInPortalBefore.add(tokenAmount));
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event Locked", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+
+        await setupMintTransferToken(portal, whitelist, testToken, alice, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        await expect(portal.connect(routerContract).lock(testToken.address, tokenAmount, alice.address, alice.address))
+          .emit(portal, "Locked")
+          .withArgs(testToken.address, tokenAmount, alice.address, alice.address);
+      });
+    });
   });
 
-  it('shouldn\'t lock tokens if caller is not a router', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await expect(portal.lock(usdt.address, 100, owner.address, alice.address)).to.be.revertedWith('Portal: router only')
+  describe("Should checking the correct operation of the unlock() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't router", async () => {
+        const { portal, testToken, alice, malory, routerContract, tokenAmount } = await loadFixture(deploy);
+      
+        expect(malory.address).to.not.equal(routerContract);
+
+        await expect(portal.connect(malory).unlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: router only')
+      });
+      it("Should check require if token not set in whitelist", async () => {
+        const { portal, testToken, alice, routerContract, tokenAmount } = await loadFixture(deploy);
+
+        await expect(portal.connect(routerContract).unlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Whitelist: token not set')
+      });
+      it("Should check require if token set in whitelist as NotSet", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        const tx = await whitelist.setTokens([[testToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.NotSet]]);
+        await tx.wait();
+
+        await expect(portal.connect(routerContract).unlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: token must be whitelisted')
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change token balances", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, feesTreasuryContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        await setupMintTransferLockToken(portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        const expectedFee = tokenAmount.mul(fee).div(await portal.FEE_DENOMINATOR());
+        const expectedAmountOut = tokenAmount.sub(expectedFee);
+
+        await expect(portal.connect(routerContract).unlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .changeTokenBalances(
+            testToken,
+            [portal, alice, feesTreasuryContract],
+            [tokenAmount.mul(-1), expectedAmountOut, expectedFee]
+          );
+      });
+      it("Should check correct change value in balanceOf", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        await setupMintTransferLockToken(portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        const balanceInPortalBefore = await portal.balanceOf(testToken.address);
+
+        tx = await portal.connect(routerContract).unlock(testToken.address, tokenAmount, alice.address, alice.address);
+        await tx.wait();
+
+        const balanceInPortalAfter = await portal.balanceOf(testToken.address);
+
+        expect(balanceInPortalAfter).to.equal(balanceInPortalBefore.sub(tokenAmount));
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event Unlocked", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        await setupMintTransferLockToken(portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        await expect(portal.connect(routerContract).unlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .emit(portal, "Unlocked")
+          .withArgs(testToken.address, tokenAmount, alice.address, alice.address);
+      });
+    });
   });
 
-  it('shouldn\'t lock tokens if token amount is wrong', async () => {
-    await whitelist.setTokens([[usdt.address, 10, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 5);
-    await usdt.approve(portal.address, 5);
-    await usdt.transfer(portal.address, 5);
-    await expect(portal.connect(router).lock(usdt.address, 5, owner.address, alice.address)).to.be.revertedWith('Portal: wrong amount')
+  describe("Should checking the correct operation of the emergencyUnlock() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't router", async () => {
+        const { portal, testToken, alice, malory, routerContract, tokenAmount } = await loadFixture(deploy);
+
+        expect(malory.address).to.not.equal(routerContract);
+
+        await expect(portal.connect(malory).emergencyUnlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: router only')
+      });
+      it("Should check require if token not set in whitelist", async () => {
+        const { portal, testToken, alice, routerContract, tokenAmount } = await loadFixture(deploy);
+
+        await expect(portal.connect(routerContract).emergencyUnlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Whitelist: token not set')
+      });
+      it("Should check require if token set in whitelist as NotSet", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+
+        const tx = await whitelist.setTokens([[testToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.NotSet]]);
+        await tx.wait();
+
+        await expect(portal.connect(routerContract).emergencyUnlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Portal: token must be whitelisted')
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change token balances", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        await setupMintTransferLockToken(portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        await expect(portal.connect(routerContract).emergencyUnlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .changeTokenBalances(
+            testToken,
+            [portal, alice],
+            [tokenAmount.mul(-1), tokenAmount]
+          );
+      });
+      it("Should check correct change value in balanceOf", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        await setupMintTransferLockToken(portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        const balanceInPortalBefore = await portal.balanceOf(testToken.address);
+
+        tx = await portal.connect(routerContract).emergencyUnlock(testToken.address, tokenAmount, alice.address, alice.address);
+        await tx.wait();
+
+        const balanceInPortalAfter = await portal.balanceOf(testToken.address);
+
+        expect(balanceInPortalAfter).to.equal(balanceInPortalBefore.sub(tokenAmount));
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event Unlocked", async () => {
+        const { portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState } = await loadFixture(deploy);
+      
+        await setupMintTransferLockToken(portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, TokenState.InOut);
+
+        await expect(portal.connect(routerContract).emergencyUnlock(testToken.address, tokenAmount, alice.address, alice.address))
+          .emit(portal, "Unlocked")
+          .withArgs(testToken.address, tokenAmount, alice.address, alice.address);
+      });
+    });
   });
 
-  it('shouldn\'t lock tokens if token bridging locked', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 0]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await expect(portal.connect(router).lock(usdt.address, 100, owner.address, alice.address)).to.be.revertedWith('Portal: token must be whitelisted')
-  });
+  async function setupMintTransferToken(portal, whitelist, testToken, alice, tokenAmountMin, tokenAmountMax, tokenAmount, fee, tokenState) {
+    let tx = await whitelist.setTokens([[testToken.address, tokenAmountMin, tokenAmountMax, fee, tokenState]]);
+    await tx.wait();
+    tx = await testToken.mint(alice.address, tokenAmount);
+    await tx.wait();
+    tx = await testToken.connect(alice).transfer(portal.address, tokenAmount);
+    await tx.wait();
+  }
 
-  it('should unlock tokens', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await portal.connect(router).lock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(100)
-    await portal.connect(router).unlock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(0)
-  });
+  async function setupMintTransferLockToken(portal, whitelist, testToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, fee, tokenState) {
+    await setupMintTransferToken(portal, whitelist, testToken, alice, tokenAmountMin, tokenAmountMax, tokenAmount, fee, tokenState);
 
-  it('shouldn\'t unlock tokens if caller is not a router', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await portal.connect(router).lock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(100)
-    await expect(portal.unlock(usdt.address, 100, owner.address, alice.address)).to.be.revertedWith('Portal: router only')
-  });
-
-  it('shouldn\'t unlock tokens if token bridging locked', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await portal.connect(router).lock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(100)
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 0]]);
-    await expect(portal.connect(router).unlock(usdt.address, 100, owner.address, alice.address)).to.be.revertedWith('Portal: token must be whitelisted')
-  });
-
-  it('should emergency unlock tokens', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await portal.connect(router).lock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(100)
-    await portal.connect(router).emergencyUnlock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(0)
-  });
-
-  it('shouldn\'t emergency unlock tokens if caller is not a router', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await portal.connect(router).lock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(100)
-    await expect(portal.emergencyUnlock(usdt.address, 100, owner.address, alice.address)).to.be.revertedWith('Portal: router only')
-  });
-
-  it('shouldn\'t emergency unlock tokens if token bridging locked', async () => {
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 1]]);
-    await usdt.mint(owner.address, 100);
-    await usdt.approve(portal.address, 100);
-    await usdt.transfer(portal.address, 100);
-    await portal.connect(router).lock(usdt.address, 100, owner.address, owner.address);
-    expect(await portal.balanceOf(usdt.address)).to.be.equal(100)
-    await whitelist.setTokens([[usdt.address, 1, 100000, 0, 0]]);
-    await expect(portal.connect(router).emergencyUnlock(usdt.address, 100, owner.address, alice.address)).to.be.revertedWith('Portal: token must be whitelisted')
-  });
-
-  it('should set address book', async () => {
-    await portal.connect(owner).setAddressBook(newAddressBook.address)
-    await expect(await portal.addressBook()).to.be.equal(newAddressBook.address)
-  });
-
-  it('shouldn\'t set address book if caller is not an owner', async () => {
-    expect(portal.connect(router).setAddressBook(newAddressBook.address)).to.be.revertedWith('Ownable: caller is not the owner')
-  });
-})
+    const tx = await portal.connect(routerContract).lock(testToken.address, tokenAmount, alice.address, alice.address);
+    await tx.wait();
+  }
+});

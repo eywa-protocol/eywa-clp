@@ -5,9 +5,40 @@ const { getRequestId } = require('../../utils/helper');
 const abi = ethers.utils.defaultAbiCoder;
 
 
+const getPermitSignature = async (signer, token, spender, value, deadline) => {
+  const [nonce, name, version, chainId] = await Promise.all([
+    token.nonces(signer.address),
+    'EYWA',
+    '1',
+    signer.getChainId(),
+  ]);
+
+  return ethers.utils.splitSignature(
+    await signer._signTypedData(
+      {name, version, chainId, verifyingContract: token.address },
+      {
+        Permit: [
+          {name: 'owner', type: 'address'},
+          {name: 'spender', type: 'address'},
+          {name: 'value', type: 'uint256'},
+          {name: 'nonce', type: 'uint256'},
+          {name: 'deadline', type: 'uint256'},
+        ],
+      },
+      {
+        owner: signer.address,
+        spender,
+        value,
+        nonce,
+        deadline,
+      }
+    )
+  );
+};
+
 describe('Router unit tests', () => {
 
-  let addressBook, whitelist, portal, synthesis, treasury, router, bridge, gateKeeper, USDT, sUSDT_BSC;
+  let addressBook, whitelist, opsRegistrar, portal, synthesis, treasury, router, bridge, gateKeeper, USDT, sUSDT_BSC;
   let owner, accountant, alice, mallory;
 
   // origin chain
@@ -25,6 +56,10 @@ describe('Router unit tests', () => {
     factory = await ethers.getContractFactory('WhitelistV2Mock');
     whitelist = await factory.deploy();
     await whitelist.deployed();
+
+    factory = await ethers.getContractFactory('OpsRegistrar');
+    opsRegistrar = await factory.deploy();
+    await opsRegistrar.deployed();
 
     factory = await ethers.getContractFactory('SynthesisV2Mock');
     synthesis = await factory.deploy(addressBook.address);
@@ -52,6 +87,7 @@ describe('Router unit tests', () => {
 
     await bridge.grantRole(await bridge.GATEKEEPER_ROLE(), gateKeeper.address);
 
+    await addressBook.setOpsRegistrar(opsRegistrar.address);
     await addressBook.setWhitelist(whitelist.address);
     await addressBook.setSynthesis([[network.config.chainId, synthesis.address], [56, synthesis.address]]);
     await addressBook.setPortal([[network.config.chainId, portal.address], [56, portal.address]]);
@@ -64,10 +100,12 @@ describe('Router unit tests', () => {
 
     await synthesis.grantRole(await synthesis.OPERATOR_ROLE(), owner.address);
 
-    await router.registerComplexOp([
+    await opsRegistrar.registerComplexOp([
       ['LM', true],
       ['BM', true],
       ['BU', true],
+      ['PLMW', true],
+      ['PLM', true],
     ]);
   });
 
@@ -122,6 +160,95 @@ describe('Router unit tests', () => {
       await USDT.connect(alice).approve(router.address, parse6('100'));
       await router.connect(alice).start(['LM'], [data1s], receipt);
       expect(await USDT.balanceOf(portal.address)).to.be.equal(parse6('100'));
+    });
+
+    it("should not start LM", async function () {
+      const hAddress = '0x000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+      const { v, r, s } = await getPermitSignature(
+        alice,
+        USDT,
+        router.address,
+        parse6('100'),
+        2272122000
+      );
+
+      const maliciousPermit = [
+        // permit
+        USDT.address,
+        alice.address,
+        parse6('100'),
+        2272122000,
+        v,
+        r,
+        s
+      ];
+
+      const maliciousSwap = [
+        // cs
+        USDT.address,
+        hAddress,//parse6('100'),
+        alice.address,
+        ethers.constants.AddressZero,
+        56, // chain id to
+        56, // tokenIn origin
+        alice.address
+      ];
+
+      const data = abi.encode(
+        [
+          // permit
+          'address',
+          'address',
+          'uint256',
+          'uint256',
+          'uint8',
+          'bytes32',
+          'bytes32',
+        ],
+        [...maliciousPermit]
+      ) + '2c' + abi.encode(
+        [
+          // swap
+          'address',
+          'uint256',
+          'address',
+          'address',
+          'uint64',
+          'uint64',
+          'address'
+        ],
+        [...maliciousSwap]
+      ).replace('0x', '');
+
+      maliciousPermit.push(maliciousSwap.shift());
+
+      const maliciousPermitData = abi.encode([
+        // permit
+        'address',
+        'address',
+        'uint256',
+        'uint256',
+        'uint8',
+        'bytes32',
+        'bytes32',
+        'address', // wrong
+      ], [...maliciousPermit]);
+
+      const maliciousSwapData = abi.encode([
+        // swap
+        'uint256',
+        'address',
+        'address',
+        'uint64',
+        'uint64',
+        'address',
+        // 'address',
+      ], [...maliciousSwap]);
+
+      const receipt = await getReceipt(250, ['PLM'], data, router, alice, accountant);
+      await expect(router.connect(alice).start(['P', 'LM'], [maliciousPermitData, maliciousSwapData], receipt))
+        .to.be.revertedWith('BaseRouter: invalid signature from worker');
     });
 
     it("should resume LM", async function () {

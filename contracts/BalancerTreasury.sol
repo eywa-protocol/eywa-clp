@@ -29,7 +29,7 @@ contract BalancerTreasury is Treasury, AccessControlEnumerable, ReentrancyGuard 
         address token,
         uint256 amount,
         address to
-    ) public onlyTrusted nonReentrant {
+    ) public nonReentrant onlyTrusted {
         _withdraw(reason, token, amount, to);
     }
 }

@@ -1,63 +1,149 @@
-const { ethers, upgrades } = require('hardhat');
+const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
+const { ethers } = require('hardhat');
 const { expect } = require('chai');
 const { parse18 } = require('../../utils/common');
+const AddressZero = ethers.constants.AddressZero;
+
+const {
+  deployFeesTreasury,
+  deployTestTokenPermit
+} = require('../setup/setup-contracts');
 
 
 describe('FeesTreasury unit tests', () => {
 
-  let feesTreasury, tokenX;
-
-  let owner, alice, mallory;
-
-  // Deploy all contracts before each test suite
-  beforeEach(async () => {
+  async function deploy(){
     // eslint-disable-next-line no-undef
-    [owner, alice, mallory] = await ethers.getSigners();
 
-    let factory = await ethers.getContractFactory('FeesTreasury');
-    feesTreasury = await factory.deploy();
-    await feesTreasury.deployed();
+    let feesTreasury, testToken;
+    let owner, alice, malory;
 
-    factory = await ethers.getContractFactory('TestTokenPermit');
-    tokenX = await factory.deploy('TokenX', 'TOX', 18);
-    await tokenX.deployed();
+    const tokenAmount = parse18('100');
 
-    await tokenX.mint(owner.address, parse18('1000000'));
-  });
+    const reason = "Reason";
 
-  it('should deposit erc20', async() => {
-    await tokenX.transfer(feesTreasury.address, parse18('1000'));
-    expect(await tokenX.balanceOf(feesTreasury.address)).to.equal(parse18('1000'));
-  });
+    [owner, alice, malory] = await ethers.getSigners();
 
-  it('should deposit native asset', async() => {
-    await owner.sendTransaction({
-      to: feesTreasury.address,
-      value: parse18('1'),
+    // deployment contracts
+    feesTreasury = await deployFeesTreasury();
+    testToken = await deployTestTokenPermit(['testToken', 'TT', 18]);
+
+
+    // preparatory actions
+    const tx = await testToken.mint(alice.address, tokenAmount);
+    await tx.wait();
+
+
+    return {
+      feesTreasury, testToken,
+      owner, alice, malory,
+      tokenAmount, reason
+    }
+  }
+
+  describe("Should checking the correct operation withdraw() function with native cryptocurrency", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't owner", async () => {
+        const { feesTreasury, alice, malory, tokenAmount, reason } = await loadFixture(deploy);
+
+        expect(malory.address).to.not.equal(await feesTreasury.owner());
+
+        await expect(feesTreasury.connect(malory).withdraw(reason, AddressZero, tokenAmount, alice.address))
+          .revertedWith("Ownable: caller is not the owner");
+      });
+      it("Should check require if try sent Ether more, than FeesTreasury balance", async () => {
+        const { feesTreasury, alice, tokenAmount, reason } = await loadFixture(deploy);
+
+        expect(await ethers.provider.getBalance(feesTreasury.address)).to.lt(tokenAmount);
+
+        await expect(feesTreasury.withdraw(reason, AddressZero, tokenAmount, alice.address))
+          .revertedWith("Treasury: Failed to send Ether");
+      });
     });
-    expect(await ethers.provider.getBalance(feesTreasury.address)).to.equal(parse18('1'));
-  });
+    describe("Should checking the correct changes state variables", () => {
+      it('Should check correct deposit native asset', async() => {
+        const { feesTreasury, alice, tokenAmount } = await loadFixture(deploy);
 
-  it('should withdraw erc20', async() => {
-    await tokenX.transfer(feesTreasury.address, parse18('1000000'));
-    expect(await tokenX.balanceOf(owner.address)).to.equal(0);
-    await feesTreasury.withdraw("", tokenX.address, parse18('1000000'), alice.address);
-    expect(await tokenX.balanceOf(alice.address)).to.equal(parse18('1000000'));
-  });
+        await expect(alice.sendTransaction({ to: feesTreasury.address, value: tokenAmount }))
+        .changeEtherBalances(
+          [alice, feesTreasury],
+          [tokenAmount.mul(-1), tokenAmount]
+        );
+      });
+      it('Should check correct withdraw native asset', async() => {
+        const { feesTreasury, alice, tokenAmount, reason } = await loadFixture(deploy);
+        
+        const tx = await alice.sendTransaction({ to: feesTreasury.address, value: tokenAmount });
+        await tx.wait();
 
-  it('should withdraw native asset', async() => {
-    const before = await ethers.provider.getBalance(alice.address);
-    await owner.sendTransaction({
-      to: feesTreasury.address,
-      value: parse18('1'),
+        await expect(feesTreasury.withdraw(reason, AddressZero, tokenAmount, alice.address))
+          .changeEtherBalances(
+            [feesTreasury, alice],
+            [tokenAmount.mul(-1), tokenAmount]
+          );
+      });
     });
-    await feesTreasury.withdraw("", ethers.constants.AddressZero, parse18('1'), alice.address);
-    expect(await ethers.provider.getBalance(alice.address)).to.equal(before.add(parse18('1')));
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event NativeWithdrawn", async () => {
+        const { feesTreasury, alice, tokenAmount, reason } = await loadFixture(deploy);
+
+        const tx = await alice.sendTransaction({ to: feesTreasury.address, value: tokenAmount });
+        await tx.wait();
+
+        await expect(feesTreasury.withdraw(reason, AddressZero, tokenAmount, alice.address))
+          .emit(feesTreasury, "NativeWithdrawn")
+          .withArgs(reason, tokenAmount, alice.address);
+      });
+    });
   });
 
-  it('shouldn\'t withdraw if caller is not an owner', async() => {
-    await expect(feesTreasury.connect(mallory).withdraw("", tokenX.address, parse18('1000000'), mallory.address))
-      .to.be.revertedWith('Ownable: caller is not the owner');
-  });
+  describe("Should checking the correct operation withdraw() function with token", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't owner", async () => {
+        const { feesTreasury, testToken, alice, malory, tokenAmount, reason } = await loadFixture(deploy);
 
+        expect(malory.address).to.not.equal(await feesTreasury.owner());
+
+        await expect(feesTreasury.connect(malory).withdraw(reason, testToken.address, tokenAmount, alice.address))
+          .revertedWith("Ownable: caller is not the owner");
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it('Should check correct change token balances for deposit token to feesTreasury', async() => {
+        const { feesTreasury, testToken, alice, tokenAmount } = await loadFixture(deploy);
+
+        await expect(testToken.connect(alice).transfer(feesTreasury.address, tokenAmount))
+          .changeTokenBalances(
+            testToken,
+            [alice, feesTreasury],
+            [tokenAmount.mul(-1), tokenAmount]
+          );
+      });
+      it('Should check correct change token balances for withdraw token from feesTreasury', async() => {
+        const { feesTreasury, testToken, alice, tokenAmount, reason } = await loadFixture(deploy);
+
+        const tx = await testToken.connect(alice).transfer(feesTreasury.address, tokenAmount);
+        await tx.wait();
+
+        await expect(feesTreasury.withdraw(reason, testToken.address, tokenAmount, alice.address))
+          .changeTokenBalances(
+            testToken,
+            [feesTreasury, alice],
+            [tokenAmount.mul(-1), tokenAmount]
+          );
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event TokenWithdrawn", async () => {
+        const { feesTreasury, testToken, alice, tokenAmount, reason } = await loadFixture(deploy);
+
+        const tx = await testToken.connect(alice).transfer(feesTreasury.address, tokenAmount);
+        await tx.wait();
+
+        await expect(feesTreasury.withdraw(reason, testToken.address, tokenAmount, alice.address))
+          .emit(feesTreasury, "TokenWithdrawn")
+          .withArgs(reason, testToken.address, tokenAmount, alice.address);
+      });
+    });
+  });
 });

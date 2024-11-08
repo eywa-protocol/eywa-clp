@@ -136,14 +136,14 @@ contract PoolAdapterMeta {
     ) external returns (uint256 amountOut) {
         IMetaPool poolImpl = IMetaPool(pool);
         require(tokenIn == poolImpl.underlying_coins(i), "PoolAdapterMeta: wrong params");
-        
-        SafeERC20.safeIncreaseAllowance(IERC20(tokenIn), pool, amountIn);
 
         uint256 minDy = poolImpl.get_dy_underlying(uint256(i), uint256(j), amountIn);
         if (minAmountOut > minDy) {
             SafeERC20.safeTransfer(IERC20(tokenIn), emergencyTo, amountIn);
             return 0;
         }
+        
+        SafeERC20.safeIncreaseAllowance(IERC20(tokenIn), pool, amountIn);
 
         uint256 balanceBefore =  IERC20(poolImpl.underlying_coins(j)).balanceOf(to);
         poolImpl.exchange_underlying(uint256(i), uint256(j), amountIn, 0, to);
@@ -178,13 +178,14 @@ contract PoolAdapterMeta {
         require(tokenIn == poolImpl.token(), "PoolAdapterMeta: wrong params");
         IERC20 erc20Impl = IERC20(tokenIn);
 
-        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
         uint256 minAmount = poolImpl.calc_withdraw_one_coin(amountIn, uint256(i));
         if (minAmountOut > minAmount) {
             SafeERC20.safeTransfer(erc20Impl, emergencyTo, amountIn);
             return 0;
         }
 
+        SafeERC20.safeIncreaseAllowance(erc20Impl, pool, amountIn);
+        
         uint256 balanceBefore =  IERC20(poolImpl.underlying_coins(i)).balanceOf(to);
         poolImpl.remove_liquidity_one_coin(amountIn, i, 0, to);
         uint256 balanceAfter =  IERC20(poolImpl.underlying_coins(i)).balanceOf(to);

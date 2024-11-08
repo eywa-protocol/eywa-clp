@@ -37,6 +37,7 @@ contract UnifiedRouterV2 is RouterV2, IUnifiedRouter {
     ) external onlyRole(OPERATOR_ROLE) {
         require(pool_ != address(0), "UnifiedRouterV2: zero address");
         poolAdapter[pool_] = poolAdapter_;
+        emit PoolAdapterSet(pool_, poolAdapter_);
     }
 
     /**
@@ -63,7 +64,7 @@ contract UnifiedRouterV2 is RouterV2, IUnifiedRouter {
                 AddParams memory p = abi.decode(params, (AddParams));
                 address adapter = _getPoolAdapter(p.pool);
                 (p.amountIn, p.from, p.emergencyTo) = _checkMaskedParams(p.amountIn, p.from, p.emergencyTo, maskedParams);
-                p.to = _checkTo(p.to, p.emergencyTo, uint64(block.chainid), nextOp);
+                p.to = _checkTo(p.to, p.emergencyTo, uint64(block.chainid), op, nextOp);
 
                 _transferToAdapter(p.tokenIn, p.from, adapter, p.amountIn);
 
@@ -88,7 +89,7 @@ contract UnifiedRouterV2 is RouterV2, IUnifiedRouter {
                 RemoveParams memory p = abi.decode(params, (RemoveParams));
                 address adapter = _getPoolAdapter(p.pool);
                 (p.amountIn, p.from, p.emergencyTo) = _checkMaskedParams(p.amountIn, p.from, p.emergencyTo, maskedParams);
-                p.to = _checkTo(p.to, p.emergencyTo, uint64(block.chainid), nextOp);
+                p.to = _checkTo(p.to, p.emergencyTo, uint64(block.chainid), op, nextOp);
 
                 _transferToAdapter(p.tokenIn, p.from, adapter, p.amountIn);
 
@@ -114,7 +115,7 @@ contract UnifiedRouterV2 is RouterV2, IUnifiedRouter {
                 SwapParams memory p = abi.decode(params, (SwapParams));
                 address adapter = _getPoolAdapter(p.pool);
                 (p.amountIn, p.from, p.emergencyTo) = _checkMaskedParams(p.amountIn, p.from, p.emergencyTo, maskedParams);
-                p.to = _checkTo(p.to, p.emergencyTo, uint64(block.chainid), nextOp);
+                p.to = _checkTo(p.to, p.emergencyTo, uint64(block.chainid), op, nextOp);
 
                 _transferToAdapter(p.tokenIn, p.from, adapter, p.amountIn);
 
@@ -142,8 +143,8 @@ contract UnifiedRouterV2 is RouterV2, IUnifiedRouter {
         }
     }
 
-    function _checkTo(address to, address emergencyTo, uint64 chainId, bytes32 nextOp) internal view virtual override returns (address correctTo) {
-        correctTo = super._checkTo(to, emergencyTo, chainId, nextOp);
+    function _checkTo(address to, address emergencyTo, uint64 chainId, bytes32 currentOp, bytes32 nextOp) internal view virtual override returns (address correctTo) {
+        correctTo = super._checkTo(to, emergencyTo, chainId, currentOp, nextOp);
         if (correctTo == address(0)) {
             if (nextOp == ADD_CODE || nextOp == REMOVE_CODE || nextOp == SWAP_CODE) {
                 correctTo = IAddressBook(addressBook).router(chainId);

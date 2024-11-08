@@ -1,289 +1,700 @@
+const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 const { ethers } = require('hardhat');
 const { expect } = require('chai');
-const { parse18, parse6 } = require('../../utils/common');
-const abi = ethers.utils.defaultAbiCoder;
+const { parse6 } = require('../../utils/common');
+const AddressZero = ethers.constants.AddressZero;
+
+
+const {
+  deployAddressBook,
+  deployWhitelistV2,
+  deploySynthesisV2,
+  deploySynthERC20,
+  deployTestTokenPermit,
+  deployThirdPartySynthAdapter
+} = require('../setup/setup-contracts');
+
 
 describe('Synthesis unit tests', () => {
-
-  let addressBook, whitelist, synthesis, treasury, router, sUSDT_BSC, sUSDC, sDAI, tokenX, tokenXAdapter;
-  let owner, operator, alice, mallory;
-
-  const chainId = network.config.chainId;
-  const someAddress = '0x0000000000000000000000000000000000000088';
-
-  // origin chain
-  const USDTAddress = '0x55d398326f99059ff775485246999027b3197955';
-  // origin chain
-  const tokenXAddress = '0x0000000000000000000000000000000000000056';
-
-  beforeEach(async () => {
+  async function deploy(){
     // eslint-disable-next-line no-undef
-    [owner, operator, alice, mallory] = await ethers.getSigners();
 
-    let factory = await ethers.getContractFactory('AddressBook');
-    addressBook = await factory.deploy();
-    await addressBook.deployed();
+    const SynthType = {
+      Unknown: 0,
+      DefaultSynth: 1,
+      CustomSynth: 2,
+      ThirdPartySynth: 3,
+      ThirdPartyToken: 4
+    };
 
-    factory = await ethers.getContractFactory('WhitelistV2');
-    whitelist = await factory.deploy();
-    await whitelist.deployed();
+    const TokenState = {
+      NotSet: 0,
+      InOut: 1
+    }
 
-    factory = await ethers.getContractFactory('SynthesisV2');
-    synthesis = await factory.deploy(addressBook.address);
-    await synthesis.deployed();
+    let synthesis, addressBook, whitelist, syntheticToken, syntheticTokenCustom, thirdPartySynthToken, thirdPartySynthAdapter;
+    let owner, operator, alice, malory, routerContract, feesTreasuryContract;
+  
+    const tokenAmountMin = parse6('1');
+    const tokenAmountMax = parse6('10000');
+    const tokenAmount = parse6('100');
 
-    await synthesis.grantRole(await synthesis.OPERATOR_ROLE(), operator.address);
+    const originalTokenAddress = '0x55d398326f99059ff775485246999027b3197955';
+    const originalTokenAddressCustom = '0x55d398326f99059ff775485246999027b3197966';
+    const originalThirdPartyTokenAddress = '0x0000000000000000000000000000000000000056';
+    const someAddress = '0x0000000000000000000000000000000000000088';
 
-    factory = await ethers.getContractFactory('FeesTreasury');
-    treasury = await factory.deploy();
-    await treasury.deployed();
+    const chainIdCurrent = network.config.chainId;
+    const chainIdFrom = 56;
 
-    factory = await ethers.getContractFactory('RouterV2Mock');
-    router = await factory.deploy(addressBook.address);
-    await router.deployed();
+    const originalChainName = 'BSC';
+    const defaultTokenName = 's USDT BSC';
+    const defaultTokenSymbol = 'sUSDT_BSC';
+    const customTokenName = 'TokenX_TokenY';
+    const customTokenSymbol = 'TX_TY';
+    const decimals = 6
 
-    await addressBook.setWhitelist(whitelist.address);
-    await addressBook.setSynthesis([[chainId, synthesis.address]]);
-    await addressBook.setRouter([[chainId, router.address]]);
-    await addressBook.setTreasury(treasury.address);
+    const fee = 1;
 
-    factory = await ethers.getContractFactory('SynthERC20');
-    sUSDT_BSC = await factory.deploy('sUSDT_BSC', 'sUSDT_BSC', 6, USDTAddress, 56, 'BSC', 1);
-    await sUSDT_BSC.deployed();
+    [owner, operator, alice, malory, routerContract, feesTreasuryContract] = await ethers.getSigners();
 
-    factory = await ethers.getContractFactory('TestTokenPermit');
-    tokenX = await factory.deploy('TokenX', 'TOX', 18);
-    await tokenX.deployed();
 
-    factory = await ethers.getContractFactory('ThirdPartySynthAdapter');
-    tokenXAdapter = await factory.deploy(tokenXAddress, tokenX.address, 56, 'BSC', 18);
-    await tokenXAdapter.deployed();
+    // deployment contracts
+    addressBook = await deployAddressBook();
+    whitelist = await deployWhitelistV2();
+    synthesis = await deploySynthesisV2([addressBook.address]);
+    syntheticToken = await deploySynthERC20([defaultTokenName, defaultTokenSymbol, decimals, originalTokenAddress, chainIdFrom, originalChainName, SynthType.DefaultSynth]);
+    syntheticTokenCustom = await deploySynthERC20([customTokenName, customTokenSymbol, decimals, originalTokenAddressCustom, chainIdFrom, originalChainName, SynthType.CustomSynth]);
+    thirdPartySynthToken = await deployTestTokenPermit(['thirdPartySynthToken', 'TOX', 18]);
+    thirdPartySynthAdapter = await deployThirdPartySynthAdapter([originalThirdPartyTokenAddress, thirdPartySynthToken.address, chainIdFrom, originalChainName, 18]);
+
+
+    // preparatory actions
+    const DEFAULT_ADMIN_ROLE = await synthesis.DEFAULT_ADMIN_ROLE();
+    const OPERATOR_ROLE = await synthesis.OPERATOR_ROLE();
+
+    let tx = await synthesis.grantRole(OPERATOR_ROLE, operator.address);
+    await tx.wait();
+    tx = await addressBook.setWhitelist(whitelist.address);
+    await tx.wait();
+    tx = await addressBook.setSynthesis([[chainIdCurrent, synthesis.address]]);
+    await tx.wait();
+
+
+    // contrats emulation
+    tx = await addressBook.setRouter([[chainIdCurrent, routerContract.address]]);
+    await tx.wait();
+    tx = await addressBook.setTreasury(feesTreasuryContract.address);
+    await tx.wait();
+
+
+    return {
+      synthesis, addressBook, whitelist, syntheticToken, syntheticTokenCustom, thirdPartySynthToken, thirdPartySynthAdapter,
+      owner, operator, alice, malory, routerContract, feesTreasuryContract,
+      tokenAmountMin, tokenAmountMax, tokenAmount, TokenState,
+      originalTokenAddress, originalTokenAddressCustom, originalThirdPartyTokenAddress, someAddress, 
+      chainIdFrom, defaultTokenName, defaultTokenSymbol, customTokenName, customTokenSymbol, decimals, originalChainName, 
+      fee, SynthType, DEFAULT_ADMIN_ROLE, OPERATOR_ROLE
+    }
+  }
+  
+  describe("Should checking the values initialized on deploy", () => {
+    it("Should check correct set addressBook", async () => {
+      const { synthesis, addressBook } = await loadFixture(deploy);
+
+      expect(await synthesis.addressBook()).to.equal(addressBook.address);
+    });
   });
 
-  describe('Setters and getters', () => {
+  describe("Should checking the correct operation of the setAddressBook() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't DEFAULT_ADMIN_ROLE", async () => {
+        const { synthesis, malory, someAddress, DEFAULT_ADMIN_ROLE } = await loadFixture(deploy);
 
-    it('should set synth', async () => {
-      await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-      expect(await synthesis.getSynth(56, USDTAddress)).to.be.equal(sUSDT_BSC.address);
+        expect(await synthesis.hasRole(DEFAULT_ADMIN_ROLE, malory.address)).to.equal(false);
+
+        const reason = `AccessControl: account ${malory.address.toLowerCase()} is missing role ${DEFAULT_ADMIN_ROLE}`;
+
+        await expect(synthesis.connect(malory).setAddressBook(someAddress))
+          .revertedWith(reason);
+      });
+      it("Should check require if new address is zero", async () => {
+        const { synthesis, owner, DEFAULT_ADMIN_ROLE } = await loadFixture(deploy);
+          
+        expect(await synthesis.hasRole(DEFAULT_ADMIN_ROLE, owner.address)).to.equal(true);
+
+        await expect(synthesis.setAddressBook(AddressZero))
+          .revertedWith("EndPoint: zero address");
+      });
     });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check change addressBook", async () => {
+        const { synthesis, owner, someAddress, DEFAULT_ADMIN_ROLE } = await loadFixture(deploy);
 
-    it('shouldn\'t set synth with zero address original token', async () => {
-      const factory = await ethers.getContractFactory('SynthERC20');
-      const synth = await factory.deploy('sUSDT_BSC', 'sUSDT_BSC', 6, ethers.constants.AddressZero, 56, 'BSC', 1);
-      await synth.deployed();
+        expect(await synthesis.hasRole(DEFAULT_ADMIN_ROLE, owner.address)).to.equal(true);
+
+        const tx = await synthesis.setAddressBook(someAddress);
+        await tx.wait();
+
+        expect(await synthesis.addressBook()).to.equal(someAddress);
+      });
+    });
+  });
+
+  describe("Should checking the correct operation of the setCap() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't OPERATOR_ROLE", async () => {
+        const { synthesis, syntheticToken, malory, tokenAmount, OPERATOR_ROLE } = await loadFixture(deploy);
+
+        expect(await synthesis.hasRole(OPERATOR_ROLE, malory.address)).to.equal(false);
+
+        const reason =`AccessControl: account ${malory.address.toLowerCase()} is missing role ${OPERATOR_ROLE}`;
+            
+        await expect(synthesis.connect(malory).setCap(syntheticToken.address, tokenAmount))
+          .revertedWith(reason);
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change cap", async () => {
+        const { synthesis, syntheticToken, operator, tokenAmount, OPERATOR_ROLE } = await loadFixture(deploy);
+
+        expect(await synthesis.hasRole(OPERATOR_ROLE, operator.address)).to.equal(true);
+
+        let tx = await syntheticToken.transferOwnership(synthesis.address);
+        await tx.wait();
+
+        tx = await synthesis.connect(operator).setCap(syntheticToken.address, tokenAmount);
+        await tx.wait();
+
+        expect(await syntheticToken.cap()).to.equal(tokenAmount);
+      });
+    });
+  });
+
+  describe("Should checking the correct operation of the setSynths() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if sender isn't OPERATOR_ROLE", async () => {
+        const { synthesis, syntheticToken, malory, OPERATOR_ROLE } = await loadFixture(deploy);
+
+        expect(await synthesis.hasRole(OPERATOR_ROLE, malory.address)).to.equal(false);
+
+        const reason = `AccessControl: account ${malory.address.toLowerCase()} is missing role ${OPERATOR_ROLE}`;
+        
+        await expect(synthesis.connect(malory).setSynths([syntheticToken.address]))
+          .revertedWith(reason);
+      });
+      it("Should check require if original token address is zero", async () => {
+        const { synthesis, operator, chainIdFrom, defaultTokenName, defaultTokenSymbol, originalChainName, customTokenName, customTokenSymbol, decimals, SynthType } = await loadFixture(deploy);
+
+        const synthDefault = await deploySynthERC20([defaultTokenName, defaultTokenSymbol, decimals, AddressZero, chainIdFrom, originalChainName, SynthType.DefaultSynth]);
+
+        await expect(synthesis.connect(operator).setSynths([synthDefault.address]))
+          .revertedWith('Synthesis: synth incorrect');
+
+        const synthCustom = await deploySynthERC20([customTokenName, customTokenSymbol, decimals, AddressZero, chainIdFrom, originalChainName, SynthType.CustomSynth]);
+
+        await expect(synthesis.connect(operator).setSynths([synthCustom.address]))
+          .revertedWith('Synthesis: synth incorrect');
+      });
+      it("Should check require if syntheticToken is already set", async () => {
+        const { synthesis, syntheticToken, operator } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([syntheticToken.address]);
+        await tx.wait();
+
+        await expect(synthesis.connect(operator).setSynths([syntheticToken.address]))
+          .revertedWith('Synthesis: synth already set');
+      });
+      it("Should check require if syntheticToken total supply > 0", async () => {
+        const { synthesis, syntheticToken, syntheticTokenCustom, operator, alice, tokenAmountMin } = await loadFixture(deploy);
+
+        let tx = await syntheticToken.mint(alice.address, tokenAmountMin);
+        await tx.wait();
+
+        await expect(synthesis.connect(operator).setSynths([syntheticToken.address]))
+          .revertedWith('Synthesis: totalSupply incorrect');
+
+        tx = await syntheticTokenCustom.mint(alice.address, tokenAmountMin);
+        await tx.wait();
+
+        await expect(synthesis.connect(operator).setSynths([syntheticTokenCustom.address]))
+          .revertedWith('Synthesis: totalSupply incorrect');
+      });
+      it("Should check require if synth with synth address assigned", async () => {
+        const { synthesis, thirdPartySynthToken, thirdPartySynthAdapter, operator, someAddress } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([thirdPartySynthAdapter.address]);
+        await tx.wait();
+
+        const thirdPartySynthAdapter2 = await deployThirdPartySynthAdapter([someAddress, thirdPartySynthToken.address, 1, 'ETH', 18]);
+
+        await expect(synthesis.connect(operator).setSynths([thirdPartySynthAdapter2.address]))
+          .revertedWith('Synthesis: adapter already set')
+      });
+      it("Should check require if syntheticToken has incorrect synth type", async () => {
+        const { synthesis, operator, someAddress, chainIdFrom, defaultTokenName, defaultTokenSymbol, decimals, originalChainName, SynthType } = await loadFixture(deploy);
+
+        const incorrectTypeSyntheticToken = await deploySynthERC20([defaultTokenName, defaultTokenSymbol, decimals, someAddress, chainIdFrom, originalChainName, SynthType.Unknown]);
+
+        await expect(synthesis.connect(operator).setSynths([incorrectTypeSyntheticToken.address]))
+          .revertedWith('Synthesis: wrong synth type');
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change synthByOriginal for default synthetic token", async () => {
+        const { synthesis, syntheticToken, operator, originalTokenAddress, chainIdFrom } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([syntheticToken.address]);
+        await tx.wait();
+
+        expect(await synthesis.getSynth(chainIdFrom, originalTokenAddress))
+          .to.equal(syntheticToken.address);
+      });
+      it("Should check correct change synthByOriginal for custom synthetic token", async () => {
+        const { synthesis, syntheticTokenCustom, operator, originalTokenAddressCustom, chainIdFrom } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([syntheticTokenCustom.address]);
+        await tx.wait();
+
+        expect(await synthesis.getSynth(chainIdFrom, originalTokenAddressCustom))
+          .to.equal(syntheticTokenCustom.address);
+      });
+      it("Should check correct change synthByOriginal for third-party synthetic token", async () => {
+        const { synthesis, thirdPartySynthAdapter, operator, originalThirdPartyTokenAddress, chainIdFrom } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([thirdPartySynthAdapter.address]);
+        await tx.wait();
+
+        expect(await synthesis.getSynth(chainIdFrom, originalThirdPartyTokenAddress))
+          .to.equal(thirdPartySynthAdapter.address);
+      });
+      it("Should check correct change synthBySynth for third-party synthetic token", async () => {
+        const { synthesis, thirdPartySynthToken, thirdPartySynthAdapter, operator } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([thirdPartySynthAdapter.address]);
+        await tx.wait();
+
+        expect(await synthesis.synthBySynth(thirdPartySynthToken.address))
+          .to.equal(thirdPartySynthAdapter.address);
+      });
+      it("Should check correct change synthByOriginal for third party original token", async () => {
+        // TO DO: when there is an adapter implementation for original third-party tokens
+      });
+      it("Should check correct change synthBySynth for third party original token", async () => {
+        // TO DO: when there is an adapter implementation for original third-party tokens
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event SynthRegistered", async () => {
+        const { synthesis,thirdPartySynthAdapter, operator, originalThirdPartyTokenAddress } = await loadFixture(deploy);
+
+        await expect(synthesis.connect(operator).setSynths([thirdPartySynthAdapter.address]))
+          .emit(synthesis, "SynthRegistered")
+          .withArgs(originalThirdPartyTokenAddress, thirdPartySynthAdapter.address);
+      });
+    });
+  });
+
+  describe("Should checking the correct operation of the mint() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if caller is not a router", async () => {
+        const { synthesis, malory, routerContract, tokenAmount, originalTokenAddress, chainIdFrom } = await loadFixture(deploy);
+
+        expect(malory.address).to.not.equal(routerContract);
+
+        await expect(synthesis.connect(malory).mint(originalTokenAddress, tokenAmount, malory.address, malory.address, chainIdFrom))
+          .revertedWith('Synthesis: router only');
+      });
+      it("Should check require if synth is not whitelisted", async () => {
+        const { synthesis, syntheticToken, operator, alice, routerContract, tokenAmount, originalTokenAddress, chainIdFrom } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([syntheticToken.address]);
+        await tx.wait();
+
+        await expect(synthesis.connect(routerContract).mint(originalTokenAddress, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .revertedWith('Whitelist: token not set');
+      });
+      it("Should check require if syntheticToken is not owned by synthesis", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, originalTokenAddress, chainIdFrom, fee } = await loadFixture(deploy);
+
+        let tx = await synthesis.connect(operator).setSynths([syntheticToken.address]);
+        await tx.wait();
+        tx = await whitelist.setTokens([[syntheticToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.NotSet]]);
+        await tx.wait();
+
+        await expect(synthesis.connect(routerContract).mint(originalTokenAddress, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .revertedWith('Ownable: caller is not the owner');
+      });
+      it("Should check require if synth is not set", async () => {
+        const { synthesis, whitelist, syntheticToken, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, originalTokenAddress, chainIdFrom, fee } = await loadFixture(deploy);
+
+        const tx = await whitelist.setTokens([[syntheticToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.NotSet]]);
+        await tx.wait();
+
+        await expect(synthesis.connect(routerContract).mint(originalTokenAddress, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .revertedWith('Synthesis: synth not set');
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change token balance for synthetic token", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, feesTreasuryContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, originalTokenAddress, chainIdFrom, fee } = await loadFixture(deploy);
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, syntheticToken, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        const expectedFee = tokenAmount * fee / await synthesis.FEE_DENOMINATOR();
+        const expectedAmountOut = tokenAmount - expectedFee;
+
+        await expect(synthesis.connect(routerContract).mint(originalTokenAddress, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .changeTokenBalances(
+            syntheticToken,
+            [alice, feesTreasuryContract],
+            [expectedAmountOut, expectedFee]
+          );
+      });
+      it("Should check correct change token balance for adapter", async () => {
+        const { synthesis, whitelist, thirdPartySynthToken, thirdPartySynthAdapter, operator, alice, routerContract, feesTreasuryContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, originalThirdPartyTokenAddress, chainIdFrom, fee } = await loadFixture(deploy);
+
+        const tx = await thirdPartySynthToken.mint(thirdPartySynthAdapter.address, tokenAmount);
+        await tx.wait();
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, thirdPartySynthAdapter, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        const expectedFee = tokenAmount * fee / await synthesis.FEE_DENOMINATOR();
+        const expectedAmountOut = tokenAmount - expectedFee;
+
+        await expect(synthesis.connect(routerContract).mint(originalThirdPartyTokenAddress, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .changeTokenBalances(
+            thirdPartySynthToken,
+            [alice, feesTreasuryContract],
+            [expectedAmountOut, expectedFee]
+          );
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event SynthRegistered for synthetic token", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, originalTokenAddress, chainIdFrom, fee } = await loadFixture(deploy);
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, syntheticToken, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        await expect(synthesis.connect(routerContract).mint(originalTokenAddress, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .emit(synthesis, "Synthesized")
+          .withArgs(syntheticToken.address, tokenAmount, alice.address, alice.address);
+      });
+      it("Should check correct generate event SynthRegistered for adapter", async () => {
+        const { synthesis, whitelist, thirdPartySynthToken, thirdPartySynthAdapter, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, originalThirdPartyTokenAddress, chainIdFrom, fee } = await loadFixture(deploy);
+
+        const tx = await thirdPartySynthToken.mint(thirdPartySynthAdapter.address, tokenAmount);
+        await tx.wait();
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, thirdPartySynthAdapter, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        await expect(synthesis.connect(routerContract).mint(originalThirdPartyTokenAddress, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .emit(synthesis, "Synthesized")
+          .withArgs(thirdPartySynthAdapter.address, tokenAmount, alice.address, alice.address);
+      });
+    });
+  });
+
+  describe("Should checking the correct operation of the emergencyMint() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if caller is not a router", async () => {
+        const { synthesis, syntheticToken, malory, routerContract, tokenAmount } = await loadFixture(deploy);
+
+        expect(malory.address).to.not.equal(routerContract);
+
+        await expect(synthesis.connect(malory).emergencyMint(syntheticToken.address, tokenAmount, malory.address, malory.address))
+          .revertedWith('Synthesis: router only');
+      });
+      it("Should check require if syntheticToken is not set", async () => {
+        const { synthesis, syntheticToken, alice, routerContract, tokenAmount } = await loadFixture(deploy);
+
+        await expect(synthesis.connect(routerContract).emergencyMint(syntheticToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Synthesis: synth not set');
+      });
+      it("Should check require if syntheticToken is not set", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, fee } = await loadFixture(deploy);
+
+        let tx = await whitelist.setTokens([[syntheticToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.NotSet]]);
+        await tx.wait();
+        tx = await synthesis.connect(operator).setSynths([syntheticToken.address]);
+        await tx.wait();
+
+        await expect(synthesis.connect(routerContract).emergencyMint(syntheticToken.address, tokenAmount, alice.address, alice.address))
+          .revertedWith('Ownable: caller is not the owner');
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change token balance for synthetic token", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, fee } = await loadFixture(deploy);
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, syntheticToken, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        await expect(synthesis.connect(routerContract).emergencyMint(syntheticToken.address, tokenAmount, alice.address, alice.address))
+          .changeTokenBalance(syntheticToken, alice, tokenAmount);
+      });
+      it("Should check correct change token balance for adapter", async () => {
+        const { synthesis, whitelist, thirdPartySynthToken, thirdPartySynthAdapter, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, fee } = await loadFixture(deploy);
+
+        const tx = await thirdPartySynthToken.mint(thirdPartySynthAdapter.address, tokenAmount);
+        await tx.wait();
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, thirdPartySynthAdapter, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        await expect(synthesis.connect(routerContract).emergencyMint(thirdPartySynthAdapter.address, tokenAmount, alice.address, alice.address))
+          .changeTokenBalance(thirdPartySynthToken, alice, tokenAmount);
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event SynthRegistered for synthetic token", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, fee } = await loadFixture(deploy);
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, syntheticToken, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        await expect(synthesis.connect(routerContract).emergencyMint(syntheticToken.address, tokenAmount, alice.address, alice.address))
+          .emit(synthesis, "Synthesized")
+          .withArgs(syntheticToken.address, tokenAmount, alice.address, alice.address);
+      });
+      it("Should check correct generate event SynthRegistered for adapter", async () => {
+        const { synthesis, whitelist, thirdPartySynthToken, thirdPartySynthAdapter, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, fee } = await loadFixture(deploy);
+
+        const tx = await thirdPartySynthToken.mint(thirdPartySynthAdapter.address, tokenAmount);
+        await tx.wait();
+
+        await setupSyntheticTokenOrAdapter(synthesis, whitelist, thirdPartySynthAdapter, operator, tokenAmountMin, tokenAmountMax, TokenState.NotSet, fee);
+
+        await expect(synthesis.connect(routerContract).emergencyMint(thirdPartySynthAdapter.address, tokenAmount, alice.address, alice.address))
+          .emit(synthesis, "Synthesized")
+          .withArgs(thirdPartySynthAdapter.address, tokenAmount, alice.address, alice.address);
+      });
+    });
+  });
+
+  describe("Should checking the correct operation of the burn() function", () => {
+    describe("Should checking the requires", () => {
+      it("Should check require if caller is not a router", async () => {
+        const { synthesis, syntheticToken, alice, malory, routerContract, tokenAmount, chainIdFrom } = await loadFixture(deploy);
+
+        expect(malory.address).to.not.equal(routerContract);
+
+        await expect(synthesis.connect(malory).burn(syntheticToken.address, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .revertedWith('Synthesis: router only');
+      });
+      it("Should check require if token not set in whitelist", async () => {
+        const { synthesis, syntheticToken, operator, alice, routerContract, tokenAmount, chainIdFrom } = await loadFixture(deploy);
+
+        const tx = await synthesis.connect(operator).setSynths([syntheticToken.address]);
+        await tx.wait();
+
+        await expect(synthesis.connect(routerContract).burn(syntheticToken.address, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .revertedWith('Whitelist: token not set');
+      });
+      it("Should check require if synthetic token is not owned by synthesis", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, chainIdFrom, fee } = await loadFixture(deploy);
+
+        let tx = await synthesis.connect(operator).setSynths([syntheticToken.address]);
+        await tx.wait();
+        tx = await whitelist.setTokens([[syntheticToken.address, tokenAmountMin, tokenAmountMax, fee, TokenState.NotSet]]);
+        await tx.wait();
+
+        await expect(synthesis.connect(routerContract).burn(syntheticToken.address, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .revertedWith('Ownable: caller is not the owner');
+      });
+    });
+    describe("Should checking the correct changes state variables", () => {
+      it("Should check correct change token balance for synthetic token", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, chainIdFrom, fee } = await loadFixture(deploy);
+
+        await setupMintSyntheticToken(
+          synthesis,
+          whitelist,
+          syntheticToken,
+          operator,
+          alice,
+          routerContract,
+          tokenAmountMin,
+          tokenAmountMax,
+          tokenAmount,
+          TokenState.NotSet,
+          fee
+        );
+
+        await expect(synthesis.connect(routerContract).burn(syntheticToken.address, tokenAmount, alice.address, alice.address, chainIdFrom))
+          .changeTokenBalance(syntheticToken, alice, -tokenAmount);
+      });
+      it("Should check correct change token balance for adapter", async () => {
+        const { synthesis, whitelist, thirdPartySynthToken, thirdPartySynthAdapter, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, someAddress, chainIdFrom, fee } = await loadFixture(deploy);
+
+        await setupMintApproveAdapter(
+          synthesis,
+          whitelist,
+          thirdPartySynthToken,
+          thirdPartySynthAdapter,
+          operator,
+          alice,
+          routerContract,
+          tokenAmountMin,
+          tokenAmountMax,
+          tokenAmount,
+          TokenState.NotSet,
+          fee
+        );
+
+        await expect(synthesis.connect(routerContract).burn(thirdPartySynthToken.address, tokenAmount, synthesis.address, someAddress, chainIdFrom))
+          .changeTokenBalances(
+            thirdPartySynthToken,
+            [synthesis, thirdPartySynthAdapter],
+            [tokenAmount.mul(-1), tokenAmount]
+          );
+      });
+    });
+    describe("Should checking the correct emit event", () => {
+      it("Should check correct generate event Burn for synthetic token", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, chainIdFrom, fee } = await loadFixture(deploy);
+
+        const chainIdTo = chainIdFrom;
+
+        await setupMintSyntheticToken(
+          synthesis,
+          whitelist,
+          syntheticToken,
+          operator,
+          alice,
+          routerContract,
+          tokenAmountMin,
+          tokenAmountMax,
+          tokenAmount,
+          TokenState.NotSet,
+          fee
+        );
+
+        await expect(synthesis.connect(routerContract).burn(syntheticToken.address, tokenAmount, alice.address, alice.address, chainIdTo))
+          .emit(synthesis, "Burn")
+          .withArgs(syntheticToken.address, tokenAmount, alice.address, alice.address);
+      });
+      it("Should check correct generate event Burn for adapter", async () => {
+        const { synthesis, whitelist, thirdPartySynthToken, thirdPartySynthAdapter, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState,  someAddress, chainIdFrom, fee } = await loadFixture(deploy);
   
-      await expect(synthesis.connect(operator).setSynths([synth.address])).to.be.revertedWith('Synthesis: synth incorrect');
-    });
+        const chainIdTo = chainIdFrom;
 
-    it('shouldn\'t reset synth', async () => {
-      await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-      await expect(synthesis.connect(operator).setSynths([sUSDT_BSC.address])).to.be.revertedWith('Synthesis: synth already set');
-    });
+        await setupMintApproveAdapter(
+          synthesis,
+          whitelist,
+          thirdPartySynthToken,
+          thirdPartySynthAdapter,
+          operator,
+          alice,
+          routerContract,
+          tokenAmountMin,
+          tokenAmountMax,
+          tokenAmount,
+          TokenState.NotSet,
+          fee
+        );
+  
+        await expect(synthesis.connect(routerContract).burn(thirdPartySynthToken.address, tokenAmount, synthesis.address, someAddress, chainIdTo))
+          .emit(synthesis, "Burn")
+          .withArgs(thirdPartySynthToken.address, tokenAmount, synthesis.address, someAddress);
+      });
+      it("Should check correct generate event Move for synthetic token", async () => {
+        const { synthesis, whitelist, syntheticToken, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState, chainIdFrom, fee } = await loadFixture(deploy);
+  
+        const chainIdTo = chainIdFrom + 1;
 
-    it('shouldn\'t set synth if caller is not an operator', async () => {
-      const reason =`AccessControl: account ${alice.address.toLowerCase()} is missing role ${await synthesis.OPERATOR_ROLE()}`;
-      await expect(synthesis.connect(alice).setSynths([sUSDT_BSC.address])).to.be.revertedWith(reason);
-    });
+        await setupMintSyntheticToken(
+          synthesis,
+          whitelist,
+          syntheticToken,
+          operator,
+          alice,
+          routerContract,
+          tokenAmountMin,
+          tokenAmountMax,
+          tokenAmount,
+          TokenState.NotSet,
+          fee
+        );
+  
+        await expect(synthesis.connect(routerContract).burn(syntheticToken.address, tokenAmount, alice.address, alice.address, chainIdTo))
+          .emit(synthesis, "Move")
+          .withArgs(syntheticToken.address, tokenAmount, alice.address, alice.address, chainIdTo);
+      });
+      it("Should check correct generate event Move for adapter", async () => {
+        const { synthesis, whitelist, thirdPartySynthToken, thirdPartySynthAdapter, operator, alice, routerContract, tokenAmountMin, tokenAmountMax, tokenAmount, TokenState,  someAddress, chainIdFrom, fee } = await loadFixture(deploy);
+  
+        const chainIdTo = chainIdFrom + 1;
 
-    it('shouldn\'t set synth if total supply > 0', async () => {
-      await sUSDT_BSC.mint(owner.address, parse6('1'));
-      await expect(synthesis.connect(operator).setSynths([sUSDT_BSC.address])).to.be.revertedWith('Synthesis: totalSupply incorrect');
-    });
+        await setupMintApproveAdapter(
+          synthesis,
+          whitelist,
+          thirdPartySynthToken,
+          thirdPartySynthAdapter,
+          operator,
+          alice,
+          routerContract,
+          tokenAmountMin,
+          tokenAmountMax,
+          tokenAmount,
+          TokenState.NotSet,
+          fee
+        );
 
-    it('shouldn\'t set synth with synth address assigned', async () => {
-      await synthesis.connect(operator).setSynths([tokenXAdapter.address]);
-      
-      factory = await ethers.getContractFactory('ThirdPartySynthAdapter');
-      const tokenXAdapter2 = await factory.deploy('0x0000000000000000000000000000000000000001', tokenX.address, 1, 'ETH', 18);
-      await tokenXAdapter2.deployed();
+        await expect(synthesis.connect(routerContract).burn(thirdPartySynthToken.address, tokenAmount, synthesis.address, someAddress, chainIdTo))
+          .emit(synthesis, "Move")
+          .withArgs(thirdPartySynthToken.address, tokenAmount, synthesis.address, someAddress, chainIdTo);
+      });
+    });
+  });
+
+  async function setupSyntheticTokenOrAdapter(synthesis, whitelist, syntheticTokenOrAdapter, operator, tokenAmountMin, tokenAmountMax, tokenState, fee) {
+    let tx = await whitelist.setTokens([[syntheticTokenOrAdapter.address, tokenAmountMin, tokenAmountMax, fee, tokenState]]);
+    await tx.wait();
+    tx = await synthesis.connect(operator).setSynths([syntheticTokenOrAdapter.address]);
+    await tx.wait();
+    tx = await syntheticTokenOrAdapter.transferOwnership(synthesis.address);
+    await tx.wait();
+  }
+
+  async function setupMintSyntheticToken(
+    synthesis,
+    whitelist,
+    syntheticToken,
+    operator,
+    alice,
+    routerContract,
+    tokenAmountMin,
+    tokenAmountMax,
+    tokenAmount,
+    tokenState,
+    fee
+  ) {
+    await setupSyntheticTokenOrAdapter(synthesis, whitelist, syntheticToken, operator, tokenAmountMin, tokenAmountMax, tokenState, fee);
+    const tx = await synthesis.connect(routerContract).emergencyMint(syntheticToken.address, tokenAmount, alice.address, alice.address);
+    await tx.wait();
+  }
+
+  async function setupMintApproveAdapter(
+    synthesis,
+    whitelist,
+    thirdPartySynthToken,
+    thirdPartySynthAdapter,
+    operator,
+    alice,
+    routerContract,
+    tokenAmountMin,
+    tokenAmountMax,
+    tokenAmount,
+    tokenState,
+    fee
+  ) {
+    await setupSyntheticTokenOrAdapter(synthesis, whitelist, thirdPartySynthAdapter, operator, tokenAmountMin, tokenAmountMax, tokenState, fee);
     
-      await expect(synthesis.connect(operator).setSynths([tokenXAdapter2.address])).to.be.revertedWith('Synthesis: adapter already set')
-    });
-
-    it('should set cap', async () => {
-      await sUSDT_BSC.transferOwnership(synthesis.address);
-      await synthesis.connect(operator).setCap(sUSDT_BSC.address, parse6('100'));
-      expect(await sUSDT_BSC.cap()).to.be.equal(parse6('100'));
-    });
-
-    it('shouldn\'t set cap if caller is not an operator', async () => {
-      const reason =`AccessControl: account ${alice.address.toLowerCase()} is missing role ${await synthesis.OPERATOR_ROLE()}`;
-      await expect(synthesis.connect(alice).setCap(sUSDT_BSC.address, parse6('100'))).to.be.revertedWith(reason);
-    });
-
-    it('should set addressBook', async () => {
-      const address = '0x00000000000000000000000000000000000000Ad';
-      await synthesis.setAddressBook(address);
-      expect(await synthesis.addressBook()).to.be.equal(address);
-    });
-
-    it('shouldn\'t set addressBook if caller is not an owner', async () => {
-      const reason =`AccessControl: account ${alice.address.toLowerCase()} is missing role ${await synthesis.DEFAULT_ADMIN_ROLE()}`;
-      const address = '0x00000000000000000000000000000000000000Ad';
-      await expect(synthesis.connect(alice).setAddressBook(address)).to.be.revertedWith(reason);
-    });
-
-  });
-
-  describe('Mint', () => {
-
-    let data1;
-
-    beforeEach(async () => {
-      const s1 = [
-        USDTAddress,
-        parse6('100'),
-        owner.address,
-        owner.address,
-        chainId, // chain id to 250
-        56, // tokenIn origin
-        owner.address
-      ];
-      data1 = abi.encode(['address', 'uint256', 'address', 'address', 'uint64', 'uint64', 'address'], [...s1]);
-    });
-
-    it('should mint synth', async () => {
-      await whitelist.setTokens([[sUSDT_BSC.address, parse6('1'), parse6('10000'), 0, 0]]);
-      await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-      await sUSDT_BSC.transferOwnership(synthesis.address);
-      await router.resume(ethers.constants.HashZero, 0, ['LM'], [data1]);
-      expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(parse6('100'));
-    });
-
-    it('shouldn\'t mint if synth is not set', async () => {
-      await whitelist.setTokens([[sUSDT_BSC.address, parse6('1'), parse6('10000'), 0, 0]]);
-      await sUSDT_BSC.transferOwnership(synthesis.address);
-      await expect(router.resume(ethers.constants.HashZero, 0, ['LM'], [data1])).to.be.revertedWith('Synthesis: synth not set');
-    });
-
-    it('shouldn\'t mint if synth is not owned by synthesis', async () => {
-      await whitelist.setTokens([[sUSDT_BSC.address, parse6('1'), parse6('10000'), 0, 0]]);
-      await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-      await expect(router.resume(ethers.constants.HashZero, 0, ['LM'], [data1])).to.be.revertedWith('Ownable: caller is not the owner');
-    });
-
-    it('shouldn\'t mint if synth is not whitelisted', async () => {
-      await sUSDT_BSC.transferOwnership(synthesis.address);
-      await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-      await expect(router.resume(ethers.constants.HashZero, 0, ['LM'], [data1])).to.be.revertedWith('Whitelist: token not set');
-    });
-
-    it('shouldn\'t mint if caller is not a router', async () => {
-      await expect(synthesis.connect(alice).mint(USDTAddress, parse6('100'), owner.address, owner.address, 56))
-        .to.be.revertedWith('Synthesis: router only');
-    });
-
-    describe('Emergency mint', () => {
-      let data2, data3, data4;
-  
-      beforeEach(async () => {
-        const s2 = [
-          sUSDT_BSC.address,
-          parse6('100'),
-          owner.address,
-          owner.address,
-          56, // chain id to
-          56, // tokenIn origin
-          owner.address
-        ];
-        data2 = abi.encode(['address', 'uint256', 'address', 'address', 'uint64', 'uint64', 'address'], [...s2]);
-
-        const s3 = [ // same as above, but after processing (synth tokenIn changed to original token address)
-          USDTAddress,
-          parse6('100'),
-          owner.address,
-          owner.address,
-          56, // chain id to
-          56, // tokenIn origin
-          owner.address
-        ];
-        data3 = abi.encode(['address', 'uint256', 'address', 'address', 'uint64', 'uint64', 'address'], [...s3]);
-  
-        const c1 = [
-          ethers.constants.HashZero,
-          250
-        ];
-        data4 = abi.encode(['bytes32', 'uint64'], [...c1]);
-      });
-  
-      it('should emergency mint synth', async () => {
-        await whitelist.setTokens([[sUSDT_BSC.address, parse6('1'), parse6('10000'), 0, 1]]);
-        await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-        await sUSDT_BSC.transferOwnership(synthesis.address);
-        await router.resume(ethers.constants.HashZero, 0, ['LM'], [data1]);
-        expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(parse6('100'));
-        await router.start(['BU'], [data2]);
-        expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(0);
-        await router.resume(ethers.constants.HashZero, 0, ['!U'], [data4]);
-        expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(parse6('100'));
-      });
-
-      it('shouldn\'t emergency mint if caller is not a router', async () => {
-        await expect(synthesis.connect(alice).emergencyMint(sUSDT_BSC.address, parse6('100'), owner.address, owner.address))
-          .to.be.revertedWith('Synthesis: router only');
-      });
-
-      it('shouldn\'t emergency mint if synth is not set', async () => {
-        await sUSDT_BSC.transferOwnership(synthesis.address);
-        await router.put('BU', data3);
-        await expect(router.resume(ethers.constants.HashZero, 0, ['!U'], [data4])).to.be.revertedWith('Synthesis: synth not set');
-      });
-
-      it('shouldn\'t emergency mint if synth is not set', async () => {
-        await whitelist.setTokens([[sUSDT_BSC.address, parse6('1'), parse6('10000'), 0, 1]]);
-        await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-        await router.put('BU', data3);
-        await expect(router.resume(ethers.constants.HashZero, 0, ['!U'], [data4])).to.be.revertedWith('Ownable: caller is not the owner');
-      });
-  
-    });
-
-  });
-
-  describe('Burn', () => {
-
-    let data1, data2;
-
-    beforeEach(async () => {
-      const s1 = [
-        USDTAddress,
-        parse6('100'),
-        owner.address,
-        owner.address,
-        250, // chain id to 250
-        56, // tokenIn origin
-        owner.address
-      ];
-      data1 = abi.encode(['address', 'uint256', 'address', 'address', 'uint64', 'uint64', 'address'], [...s1]);
-
-      const s2 = [
-        sUSDT_BSC.address,
-        parse6('100'),
-        owner.address,
-        owner.address,
-        56, // chain id to
-        56, // tokenIn origin
-        owner.address
-      ];
-      data2 = abi.encode(['address', 'uint256', 'address', 'address', 'uint64', 'uint64', 'address'], [...s2]);
-
-      await whitelist.setTokens([[sUSDT_BSC.address, parse6('1'), parse6('10000'), 0, 0]]);
-      await synthesis.connect(operator).setSynths([sUSDT_BSC.address]);
-      await sUSDT_BSC.transferOwnership(synthesis.address);
-      await router.resume(ethers.constants.HashZero, 0, ['LM'], [data1]);
-    });
-
-    it('should burn synth', async () => {
-      expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(parse6('100'));
-      await router.start(['BM'], [data2]);
-      expect(await sUSDT_BSC.balanceOf(owner.address)).to.be.equal(0);
-    });
-
-    it('shouldn\'t burn if caller is not a router', async () => {
-      await expect(synthesis.connect(alice).burn(USDTAddress, parse6('100'), owner.address, owner.address, 56))
-        .to.be.revertedWith('Synthesis: router only');
-    });
-
-  });
-
+    let tx = await thirdPartySynthToken.mint(thirdPartySynthAdapter.address, tokenAmount);
+    await tx.wait();
+    tx = await synthesis.connect(routerContract).emergencyMint(thirdPartySynthAdapter.address, tokenAmount, alice.address, alice.address);
+    await tx.wait();
+    tx = await thirdPartySynthToken.connect(alice).approve(routerContract.address, tokenAmount);
+    await tx.wait();
+    tx = await thirdPartySynthToken.connect(routerContract).transferFrom(alice.address, synthesis.address, tokenAmount);
+    await tx.wait();
+  }
 });

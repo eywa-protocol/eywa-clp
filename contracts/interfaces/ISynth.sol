@@ -36,6 +36,5 @@ interface ISynthAdapter {
 }
 
 interface ISynthERC20 is ISynthAdapter, IERC20 {
-    function mintWithAllowanceIncrease(address account, address spender, uint256 amount) external;
-    function burnWithAllowanceDecrease(address account, address spender, uint256 amount) external;
+
 }
